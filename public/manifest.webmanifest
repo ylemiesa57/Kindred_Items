@@ -1,0 +1,17 @@
+{
+  "name": "Kindred Objects",
+  "short_name": "Kindred",
+  "description": "Private, stateful conversations with meaningful household objects.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f5ef",
+  "theme_color": "#315e4b",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
