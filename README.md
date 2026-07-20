@@ -1,5 +1,80 @@
 # Kindred Objects
 
+A privacy-first prototype for stateful, conversational object twins. Point a phone camera at meaningful household objects, give them grounded personalities, and preserve confirmed changes as an append-only history.
+
+## Run locally
+
+```bash
+npm install
+copy .env.example .env
+# Add OPENAI_API_KEY to .env
+npm run dev
+```
+
+Open `http://localhost:5173`. Camera and microphone access require `localhost` or HTTPS. The Vite client proxies `/api` to the local server on port 8787, so the OpenAI API key never enters browser code.
+
+OpenAI powers:
+
+- Realtime speech-to-speech World Mode over WebRTC with a short-lived client secret
+- Recorded speech transcription for enrollment and confirmations
+- Structured multi-object analysis from temporary World Mode frames
+
+Models are configurable in `.env`. `npm run start` serves the built production app after `npm run build`.
+
+## What V3 implements
+
+- Immediate spoken “Picture taken” feedback, camera shutdown, and automatic progression
+- One-question-at-a-time hands-free enrollment with voice commands and keyboard fallback
+- OpenAI transcription with automatic end-of-speech detection and visible processing/error states
+- A global **Introduce another object** action and auto-starting introduction camera
+- Explicit World Mode with live scene understanding, multi-object matching, realtime conversation, camera pause, microphone mute, and exit controls
+- Local visual fingerprints and explicit identity confirmation
+- Three typed state schemas: sentimental item, appliance, and personal belonging
+- Structured state proposals with confidence and safety confirmation
+- Append-only state history with caregiver corrections
+- Grounded first-person object personalities
+- Local persistence, data export, deletion, and PWA metadata
+- Dementia-care boundaries: no diagnosis, medication decisions, emergency claims, or hidden monitoring
+
+The local matching algorithm compares normalized color histograms. It demonstrates the identity boundary and confirmation UX, not production-grade object re-identification. A production adapter should use multi-view visual embeddings while preserving the same ambiguity policy.
+
+## Data flow
+
+### Single-object introduction
+
+1. A frame is sampled only after the user taps **Take picture**.
+2. The frame is reduced to a 48-value histogram in the browser and discarded.
+3. The app vibrates, says “Picture taken,” turns the camera off, and advances automatically.
+4. Similarity search proposes a twin; the user confirms by voice or button.
+5. New objects are introduced through a guided voice interview after they can be put down.
+6. Spoken answers are recorded until silence, sent to the server for transcription, and discarded.
+7. Accepted changes create immutable events and update current state.
+
+### World Mode
+
+1. The user explicitly starts a visible World Mode session.
+2. While active, a frame is sampled about every eight seconds, but unchanged scenes are skipped locally.
+3. Temporary compressed frames are sent through the server to OpenAI for structured visual analysis; this app does not persist them.
+4. The scene graph updates known and unknown objects without automatically changing persistent twin state.
+5. Realtime voice receives the latest scene as grounded instructions. Suggested state changes still require confirmation.
+6. Pause seeing, pause listening, and exit controls are always visible. Exiting closes camera, microphone, and Realtime connections.
+
+## Verification
+
+```bash
+npm run lint
+npm test
+npm run build
+npm audit
+```
+
+The automated suite covers state extraction, confirmation rules, corrections, medical boundaries, grounding, and fingerprint matching.
+
+## Prototype limits
+
+This is a memory-support prototype, not a medical device or autonomous safety system. It only knows what was shown or reported during a session. It cannot infer events that occurred while the camera was off, and it must never replace human care or supervision. Visual matching remains heuristic, and World Mode model output can be wrong; persistent changes therefore require human confirmation.
+# Kindred Objects
+
 A privacy-first prototype for stateful, conversational object twins. Point a phone camera at a meaningful household object, give it a grounded personality, and preserve confirmed changes as an append-only history.
 
 ## Run locally

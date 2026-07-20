@@ -4,6 +4,7 @@ import {
   Check,
   Clock3,
   Download,
+  Globe2,
   Heart,
   Home,
   KeyRound,
@@ -41,9 +42,10 @@ import {
   revertEvent,
 } from './twinEngine'
 import { fingerprintImage, matchFingerprint, type CapturedFingerprint, type IdentityMatch } from './vision'
+import { WorldMode } from './WorldMode'
 import './App.css'
 
-type View = 'home' | 'scan' | 'library' | 'caregiver' | 'object'
+type View = 'home' | 'scan' | 'world' | 'library' | 'caregiver' | 'object'
 type Message = { id: string; speaker: 'person' | 'object'; text: string; grounding?: string }
 
 const iconByCategory = {
@@ -128,10 +130,23 @@ function App() {
     setConsent(true)
   }
 
+  function navigate(nextView: View) {
+    if (nextView !== 'scan') camera.stop()
+    setView(nextView)
+  }
+
+  function introduceObject() {
+    setIdentityMatch(null)
+    setCapturedFingerprint(null)
+    setShowEnrollment(false)
+    setStatus('')
+    navigate('scan')
+  }
+
   function selectTwin(twin: ObjectTwin) {
     setSelectedTwinId(twin.id)
     setMessages([])
-    setView('object')
+    navigate('object')
     camera.stop()
   }
 
@@ -240,13 +255,13 @@ function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <button className="brand" onClick={() => setView('home')} aria-label="Go home">
+        <button className="brand" onClick={() => navigate('home')} aria-label="Go home">
           <span className="brand-mark"><Sparkles size={18} /></span>
           <span>Kindred Objects</span>
         </button>
         <div className="privacy-chip">
           <span className={`status-dot ${camera.active ? 'live' : ''}`} />
-          {camera.active ? 'Camera on now' : 'Camera off'}
+          {view === 'world' ? 'World controls visible' : camera.active ? 'Camera on now' : 'Camera off'}
         </div>
       </header>
 
@@ -262,7 +277,8 @@ function App() {
           <HomeView
             twins={world.twins}
             events={world.events}
-            onScan={() => setView('scan')}
+            onScan={introduceObject}
+            onWorld={() => navigate('world')}
             onSelect={selectTwin}
             onLibrary={() => setView('library')}
             onRestoreDemo={restoreDemo}
@@ -291,8 +307,12 @@ function App() {
           />
         )}
 
+        {view === 'world' && (
+          <WorldMode twins={world.twins} onIntroduce={introduceObject} />
+        )}
+
         {view === 'library' && (
-          <LibraryView twins={world.twins} events={world.events} onSelect={selectTwin} onScan={() => setView('scan')} />
+          <LibraryView twins={world.twins} events={world.events} onSelect={selectTwin} onScan={introduceObject} />
         )}
 
         {view === 'object' && selectedTwin && (
@@ -332,11 +352,18 @@ function App() {
       </main>
 
       <nav className="bottom-nav" aria-label="Primary navigation">
-        <NavButton active={view === 'home'} label="Home" icon={Home} onClick={() => setView('home')} />
-        <NavButton active={view === 'scan'} label="Show object" icon={ScanLine} onClick={() => setView('scan')} />
-        <NavButton active={view === 'library' || view === 'object'} label="My objects" icon={Library} onClick={() => setView('library')} />
-        <NavButton active={view === 'caregiver'} label="Caregiver" icon={ShieldCheck} onClick={() => setView('caregiver')} />
+        <NavButton active={view === 'home'} label="Home" icon={Home} onClick={() => navigate('home')} />
+        <NavButton active={view === 'scan'} label="Introduce" icon={ScanLine} onClick={introduceObject} />
+        <NavButton active={view === 'world'} label="World" icon={Globe2} onClick={() => navigate('world')} />
+        <NavButton active={view === 'library' || view === 'object'} label="Objects" icon={Library} onClick={() => navigate('library')} />
+        <NavButton active={view === 'caregiver'} label="Caregiver" icon={ShieldCheck} onClick={() => navigate('caregiver')} />
       </nav>
+
+      {!['scan', 'world'].includes(view) && (
+        <button className="global-add-button" onClick={introduceObject}>
+          <Plus size={19} /> Introduce another object
+        </button>
+      )}
 
       {!consent && <ConsentSheet onAccept={acceptConsent} />}
     </div>
@@ -347,6 +374,7 @@ function HomeView({
   twins,
   events,
   onScan,
+  onWorld,
   onSelect,
   onLibrary,
   onRestoreDemo,
@@ -354,6 +382,7 @@ function HomeView({
   twins: ObjectTwin[]
   events: StateEvent[]
   onScan: () => void
+  onWorld: () => void
   onSelect: (twin: ObjectTwin) => void
   onLibrary: () => void
   onRestoreDemo: () => void
@@ -366,9 +395,14 @@ function HomeView({
         <p className="eyebrow">A gentler kind of memory</p>
         <h1>What would you like to remember?</h1>
         <p>Show an object to the camera. It can tell you what it is, share its story, and remember confirmed changes.</p>
-        <button className="primary-button large" onClick={onScan}>
-          <Camera size={21} /> Show me an object
-        </button>
+        <div className="hero-actions">
+          <button className="primary-button large" onClick={onWorld}>
+            <Globe2 size={21} /> Enter World Mode
+          </button>
+          <button className="secondary-button large" onClick={onScan}>
+            <Camera size={21} /> Introduce one object
+          </button>
+        </div>
         <p className="quiet-note"><ShieldCheck size={14} /> The camera only turns on when you ask.</p>
       </section>
 
@@ -444,6 +478,10 @@ function ScanView({
   })
 
   useEffect(() => {
+    if (!captured && !camera.active) void camera.start()
+  }, [])
+
+  useEffect(() => {
     if (!match || showEnrollment) return
     speak(
       `Picture taken. I think this is ${match.twin.name}. Is that right? Say yes or no.`,
@@ -508,11 +546,12 @@ function ScanView({
               <button className="primary-button" onClick={onConfirm}><Check size={18} /> Yes, that’s right</button>
               <button className="secondary-button" onClick={onReject}><X size={18} /> No, a new object</button>
               {identitySpeech.supported && (
-                <button className={`secondary-button ${identitySpeech.listening ? 'listening' : ''}`} onClick={identitySpeech.listening ? identitySpeech.stop : identitySpeech.start}>
-                  <Mic size={18} /> {identitySpeech.listening ? 'Listening…' : 'Answer by voice'}
+                <button className={`secondary-button ${identitySpeech.listening ? 'listening' : ''}`} onClick={identitySpeech.listening ? identitySpeech.stop : identitySpeech.start} disabled={identitySpeech.processing}>
+                  <Mic size={18} /> {identitySpeech.processing ? 'Understanding…' : identitySpeech.listening ? 'Listening… tap to stop' : 'Answer by voice'}
                 </button>
               )}
             </div>
+            {identitySpeech.error && <div className="inline-alert">{identitySpeech.error}</div>}
           </div>
         </div>
       )}
@@ -706,7 +745,7 @@ function EnrollmentForm({
         <div>
           <span className="card-kicker">{speech.listening ? 'Listening now' : 'Spoken question'}</span>
           <h3>{promptByStep[step]}</h3>
-          {voiceError && <p className="voice-error">{voiceError}</p>}
+          {(voiceError || speech.error) && <p className="voice-error">{voiceError || speech.error}</p>}
         </div>
       </div>
 
@@ -738,8 +777,8 @@ function EnrollmentForm({
       ) : (
         <div className="voice-controls">
           {speech.supported && (
-            <button className={`primary-button large ${speech.listening ? 'listening' : ''}`} onClick={speech.listening ? speech.stop : speech.start}>
-              <Mic size={20} /> {speech.listening ? 'Listening… tap to stop' : 'Answer by voice'}
+            <button className={`primary-button large ${speech.listening ? 'listening' : ''}`} onClick={speech.listening ? speech.stop : speech.start} disabled={speech.processing}>
+              <Mic size={20} /> {speech.processing ? 'Understanding…' : speech.listening ? 'Listening… tap to stop' : 'Answer by voice'}
             </button>
           )}
           <button className="secondary-button" onClick={() => repeatPrompt()}><Volume2 size={18} /> Repeat question</button>
@@ -865,9 +904,10 @@ function ObjectView({
           </div>
           <div className="composer">
             <input value={question} onChange={(event) => onQuestion(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && onAsk()} placeholder={`Ask ${twin.name} something…`} />
-            {speech.supported && <button className={`icon-button ${speech.listening ? 'listening' : ''}`} onClick={speech.listening ? speech.stop : speech.start} aria-label="Use microphone"><Mic size={19} /></button>}
+            {speech.supported && <button className={`icon-button ${speech.listening ? 'listening' : ''}`} onClick={speech.listening ? speech.stop : speech.start} aria-label="Use microphone" disabled={speech.processing}><Mic size={19} /></button>}
             <button className="primary-button" onClick={() => onAsk()}>Ask</button>
           </div>
+          {speech.error && <div className="inline-alert">{speech.error}</div>}
         </section>
 
         <aside className="memory-panel">
@@ -960,7 +1000,7 @@ function CaregiverView({
         <button className={caregiverMode ? 'secondary-button' : 'primary-button'} onClick={onToggleMode}>{caregiverMode ? 'Leave caregiver mode' : 'Enter caregiver mode'}</button>
       </div>
       <div className="settings-grid">
-        <div className="settings-card"><Camera size={23} /><h2>Camera privacy</h2><p>Camera is off by default and only active on the “Show object” screen. Raw frames are not saved.</p><span className="safe-label"><Check size={14} /> Privacy-protective default</span></div>
+        <div className="settings-card"><Camera size={23} /><h2>Camera privacy</h2><p>Camera is off by default. It runs during an explicit object introduction or World Mode session, with visible pause and exit controls. Raw frames are not saved.</p><span className="safe-label"><Check size={14} /> Privacy-protective default</span></div>
         <div className="settings-card"><ShieldCheck size={23} /><h2>Safety boundary</h2><p>No diagnosis, medication decisions, emergency claims, financial advice, or hidden monitoring.</p><span className="safe-label"><Check size={14} /> Always enforced</span></div>
         <div className="settings-card"><Download size={23} /><h2>Own the data</h2><p>Export every object profile and state event as a readable JSON file.</p><button className="secondary-button" onClick={onExport}><Download size={17} /> Export data</button></div>
         <div className="settings-card danger-zone"><Trash2 size={23} /><h2>Delete local data</h2><p>Immediately removes all twins, fingerprints, stories, and history from this browser.</p><button className="danger-button" onClick={onDeleteAll}><Trash2 size={17} /> Delete everything</button></div>
@@ -991,10 +1031,10 @@ function ConsentSheet({ onAccept }: { onAccept: () => void }) {
         <div className="consent-symbol"><ShieldCheck size={28} /></div>
         <p className="eyebrow">Before we begin</p>
         <h1 id="consent-title">Your room stays yours.</h1>
-        <p>The camera and microphone stay off until you choose them. Camera frames are processed on demand and discarded; only compact fingerprints and confirmed memories remain in this browser.</p>
+        <p>The camera and microphone stay off until you choose them. Camera frames are processed on demand—or during an explicit World Mode session—and discarded; only compact fingerprints and confirmed memories remain in this browser.</p>
         <ul>
           <li><Check size={17} /> Clear camera and microphone indicators</li>
-          <li><Check size={17} /> No continuous or hidden monitoring</li>
+          <li><Check size={17} /> No hidden or background monitoring</li>
           <li><Check size={17} /> Export or delete your data whenever you want</li>
           <li><Check size={17} /> No medical diagnosis or medication decisions</li>
         </ul>

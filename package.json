@@ -4,23 +4,34 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "tsc -b --pretty false",
+    "dev": "concurrently -k -n WEB,API -c blue,green \"vite\" \"tsx watch server/index.ts\"",
+    "build": "tsc -b && vite build && tsc -p server/tsconfig.json",
+    "lint": "tsc -b --pretty false && tsc -p server/tsconfig.json --noEmit --pretty false",
     "test": "vitest run",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "cross-env NODE_ENV=production node server-dist/index.js"
   },
   "dependencies": {
+    "@openai/agents": "^0.13.5",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
     "lucide-react": "^1.25.0",
+    "multer": "^2.2.0",
+    "openai": "^6.48.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.2.0",
     "@types/node": "^24.13.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.7.0",
+    "concurrently": "^9.2.4",
+    "cross-env": "^7.0.3",
+    "tsx": "^4.23.1",
     "typescript": "^5.9.3",
     "vite": "^6.4.3",
     "vitest": "^3.2.7"
