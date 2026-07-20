@@ -95,9 +95,33 @@ function App() {
   useEffect(() => saveWorld(world), [world])
 
   const speech = useSpeechInput((transcript) => {
+    if (pendingProposal) {
+      const answer = transcript.trim().toLowerCase()
+      if (/\b(yes|confirm|correct|right)\b/.test(answer)) {
+        applyProposal(pendingProposal, caregiverMode ? 'caregiver' : 'user')
+        return
+      }
+      if (/\b(no|cancel|wrong|incorrect)\b/.test(answer)) {
+        setPendingProposal(null)
+        setStatus('Nothing changed. The proposed observation was discarded.')
+        speak('Okay. I will not remember that change.')
+        return
+      }
+      setStatus('Please say yes to confirm the change, or no to discard it.')
+      speak('Please say yes or no.')
+      return
+    }
     setQuestion(transcript)
     if (selectedTwin) askTwin(transcript)
   })
+
+  useEffect(() => {
+    if (!pendingProposal) return
+    speak(
+      `${pendingProposal.summary} Should I remember that? Say yes or no.`,
+      speech.supported ? speech.start : undefined,
+    )
+  }, [pendingProposal?.summary])
 
   function acceptConsent() {
     localStorage.setItem('object-twins.consent', 'yes')
@@ -115,10 +139,16 @@ function App() {
     if (!camera.videoRef.current || !camera.active) return
     const fingerprint = fingerprintImage(camera.videoRef.current, false)
     const match = matchFingerprint(fingerprint, world.twins)
+    navigator.vibrate?.(70)
+    camera.stop()
     setCapturedFingerprint(fingerprint)
     setIdentityMatch(match)
     setShowEnrollment(!match)
-    setStatus(match ? 'I found a possible twin. Please confirm it.' : 'I do not recognize this object yet.')
+    setStatus(
+      match
+        ? 'Picture taken. I found a possible twin. Please confirm it.'
+        : 'Picture taken. I do not recognize this object yet.',
+    )
   }
 
   function confirmMatch() {
@@ -399,39 +429,70 @@ function ScanView({
   onEnroll: (twin: ObjectTwin) => void
   onCancelEnrollment: () => void
 }) {
+  const captured = Boolean(match || (showEnrollment && fingerprint))
+  const identitySpeech = useSpeechInput((transcript) => {
+    const answer = transcript.trim().toLowerCase()
+    if (/\b(yes|correct|right|that is it)\b/.test(answer)) {
+      onConfirm()
+      return
+    }
+    if (/\b(no|wrong|new object|not it)\b/.test(answer)) {
+      onReject()
+      return
+    }
+    speak('Please say yes if this is the right object, or no if it is a new object.')
+  })
+
+  useEffect(() => {
+    if (!match || showEnrollment) return
+    speak(
+      `Picture taken. I think this is ${match.twin.name}. Is that right? Say yes or no.`,
+      identitySpeech.supported ? identitySpeech.start : undefined,
+    )
+  }, [match?.twin.id, showEnrollment])
+
   return (
     <div className="page scan-page">
-      <div className="page-title">
-        <p className="eyebrow">Private, on-demand camera</p>
-        <h1>Bring one object into view</h1>
-        <p>Hold it steady and fill the guide. We keep a compact visual fingerprint—not the raw camera frame.</p>
-      </div>
-
-      <div className={`camera-stage ${camera.active ? 'active' : ''}`}>
-        <video ref={camera.videoRef} muted playsInline aria-label="Live camera preview" />
-        {!camera.active && (
-          <div className="camera-placeholder">
-            <Camera size={42} />
-            <strong>Camera is off</strong>
-            <span>Nothing is being recorded.</span>
+      {!captured ? (
+        <>
+          <div className="page-title">
+            <p className="eyebrow">Private, on-demand camera</p>
+            <h1>Bring one object into view</h1>
+            <p>Hold it steady and fill the guide. We keep a compact visual fingerprint—not the raw camera frame.</p>
           </div>
-        )}
-        {camera.active && <div className="object-guide"><span>Place one object here</span></div>}
-        <div className="live-indicator"><span /> {camera.active ? 'Live on this screen' : 'Private'}</div>
-      </div>
 
-      {camera.error && <div className="inline-alert">{camera.error}</div>}
+          <div className={`camera-stage ${camera.active ? 'active' : ''}`}>
+            <video ref={camera.videoRef} muted playsInline aria-label="Live camera preview" />
+            {!camera.active && (
+              <div className="camera-placeholder">
+                <Camera size={42} />
+                <strong>Camera is off</strong>
+                <span>Nothing is being recorded.</span>
+              </div>
+            )}
+            {camera.active && <div className="object-guide"><span>Place one object here</span></div>}
+            <div className="live-indicator"><span /> {camera.active ? 'Live on this screen' : 'Private'}</div>
+          </div>
 
-      <div className="camera-actions">
-        {!camera.active ? (
-          <button className="primary-button large" onClick={camera.start}><Camera size={20} /> Turn camera on</button>
-        ) : (
-          <>
-            <button className="secondary-button" onClick={camera.stop}><Pause size={18} /> Pause camera</button>
-            <button className="primary-button" onClick={onCapture}><ScanLine size={19} /> Look at this object</button>
-          </>
-        )}
-      </div>
+          {camera.error && <div className="inline-alert">{camera.error}</div>}
+
+          <div className="camera-actions">
+            {!camera.active ? (
+              <button className="primary-button large" onClick={camera.start}><Camera size={20} /> Turn camera on</button>
+            ) : (
+              <>
+                <button className="secondary-button" onClick={camera.stop}><Pause size={18} /> Pause camera</button>
+                <button className="primary-button" onClick={onCapture}><ScanLine size={19} /> Take picture</button>
+              </>
+            )}
+          </div>
+        </>
+      ) : (
+        <div className="capture-confirmation" role="status">
+          <span><Check size={21} /></span>
+          <div><p className="eyebrow">Camera is off</p><h1>Picture taken</h1><p>You can put the object down. We’ll continue by voice.</p></div>
+        </div>
+      )}
 
       {match && !showEnrollment && (
         <div className="match-card">
@@ -446,6 +507,11 @@ function ScanView({
             <div className="button-row">
               <button className="primary-button" onClick={onConfirm}><Check size={18} /> Yes, that’s right</button>
               <button className="secondary-button" onClick={onReject}><X size={18} /> No, a new object</button>
+              {identitySpeech.supported && (
+                <button className={`secondary-button ${identitySpeech.listening ? 'listening' : ''}`} onClick={identitySpeech.listening ? identitySpeech.stop : identitySpeech.start}>
+                  <Mic size={18} /> {identitySpeech.listening ? 'Listening…' : 'Answer by voice'}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -467,12 +533,133 @@ function EnrollmentForm({
   onEnroll: (twin: ObjectTwin) => void
   onCancel: () => void
 }) {
+  type EnrollmentStep = 'category' | 'name' | 'purpose' | 'location' | 'story' | 'personality' | 'review'
+  const steps: EnrollmentStep[] = ['category', 'name', 'purpose', 'location', 'story', 'personality', 'review']
+  const [stepIndex, setStepIndex] = useState(0)
   const [category, setCategory] = useState<ObjectCategory>('sentimental')
   const [name, setName] = useState('')
   const [purpose, setPurpose] = useState('')
   const [story, setStory] = useState('')
   const [usualLocation, setUsualLocation] = useState('')
   const [personality, setPersonality] = useState<'gentle' | 'cheerful' | 'matter-of-fact'>('gentle')
+  const [fallbackAnswer, setFallbackAnswer] = useState('')
+  const [voiceError, setVoiceError] = useState('')
+  const [hasAnswered, setHasAnswered] = useState(false)
+  const step = steps[stepIndex]
+
+  const promptByStep: Record<EnrollmentStep, string> = {
+    category: 'Picture taken. You can put the object down. Is this a sentimental item, a daily-use appliance, or a personal belonging?',
+    name: 'What should I call this object?',
+    purpose: `What is ${name || 'this object'} used for?`,
+    location: `Where does ${name || 'it'} usually belong?`,
+    story: 'Does it have a story you would like me to remember? You can also say skip.',
+    personality: 'Should it sound gentle, cheerful, or straightforward?',
+    review: `I have ${name || 'this object'}, a ${categoryDefinitions[category].label.toLowerCase()} used for ${purpose || 'the purpose you described'}, usually kept ${usualLocation || 'where you described'}. Should I remember this? Say yes or no.`,
+  }
+
+  function repeatPrompt(prefix = '') {
+    setVoiceError('')
+    speech.stop()
+    speak(`${prefix}${promptByStep[step]}`, speech.supported ? speech.start : undefined)
+  }
+
+  function advance() {
+    setHasAnswered(true)
+    setFallbackAnswer('')
+    setVoiceError('')
+    setStepIndex((current) => Math.min(current + 1, steps.length - 1))
+  }
+
+  function chooseCategory(nextCategory: ObjectCategory) {
+    setCategory(nextCategory)
+    advance()
+  }
+
+  function handleAnswer(rawAnswer: string) {
+    const answer = rawAnswer.trim()
+    const normalized = answer.toLowerCase()
+    if (!answer) return
+
+    if (/\b(stop|cancel|quit)\b/.test(normalized)) {
+      speak('Okay. I stopped the introduction.')
+      onCancel()
+      return
+    }
+    if (/\b(repeat|say that again)\b/.test(normalized)) {
+      repeatPrompt()
+      return
+    }
+    if (/\b(go back|previous)\b/.test(normalized)) {
+      setStepIndex((current) => Math.max(0, current - 1))
+      return
+    }
+    if (/\b(help|what can i say)\b/.test(normalized)) {
+      speak('Answer the question naturally. You can also say repeat, go back, skip, or stop.', speech.start)
+      return
+    }
+
+    if (step === 'category') {
+      if (/\b(sentimental|keepsake|photo|gift|memory)\b/.test(normalized)) chooseCategory('sentimental')
+      else if (/\b(appliance|kettle|lamp|tool|machine)\b/.test(normalized)) chooseCategory('appliance')
+      else if (/\b(belonging|glasses|keys|bag|personal)\b/.test(normalized)) chooseCategory('belonging')
+      else {
+        setVoiceError('I did not catch the category.')
+        speak('Please say sentimental item, appliance, or personal belonging.', speech.start)
+      }
+      return
+    }
+
+    if (step === 'name') {
+      setName(answer.replace(/^(call it|it is|this is)\s+/i, ''))
+      advance()
+      return
+    }
+    if (step === 'purpose') {
+      setPurpose(answer)
+      advance()
+      return
+    }
+    if (step === 'location') {
+      setUsualLocation(answer)
+      advance()
+      return
+    }
+    if (step === 'story') {
+      setStory(/\b(skip|no story|not now)\b/.test(normalized) ? '' : answer)
+      advance()
+      return
+    }
+    if (step === 'personality') {
+      if (/\b(cheerful|happy|bright)\b/.test(normalized)) setPersonality('cheerful')
+      else if (/\b(straightforward|matter.of.fact|clear|direct)\b/.test(normalized)) setPersonality('matter-of-fact')
+      else if (/\b(gentle|calm|reassuring)\b/.test(normalized)) setPersonality('gentle')
+      else {
+        setVoiceError('I did not catch the personality.')
+        speak('Please say gentle, cheerful, or straightforward.', speech.start)
+        return
+      }
+      advance()
+      return
+    }
+    if (step === 'review') {
+      if (/\b(yes|confirm|correct|remember)\b/.test(normalized)) submit()
+      else if (/\b(no|wrong|start over)\b/.test(normalized)) {
+        setStepIndex(1)
+        speak('Okay. Let us start again with the name.')
+      } else {
+        setVoiceError('Please answer yes or no.')
+        speak('Please say yes to create this twin, or no to make a correction.', speech.start)
+      }
+    }
+  }
+
+  const speech = useSpeechInput(handleAnswer)
+
+  useEffect(() => {
+    const prefix = hasAnswered ? 'Got it. ' : ''
+    const timer = window.setTimeout(() => repeatPrompt(prefix), 180)
+    return () => window.clearTimeout(timer)
+  }, [stepIndex])
 
   function submit() {
     const now = new Date().toISOString()
@@ -505,36 +692,76 @@ function EnrollmentForm({
   }
 
   return (
-    <section className="enrollment-card">
+    <section className="enrollment-card voice-enrollment">
       <div className="section-heading compact">
-        <div><p className="eyebrow">New twin</p><h2>Introduce this object</h2></div>
+        <div><p className="eyebrow">Voice introduction · {stepIndex + 1} of {steps.length}</p><h2>You can keep your hands free</h2></div>
         <button className="icon-button" onClick={onCancel} aria-label="Close"><X size={18} /></button>
       </div>
-      <div className="category-grid">
-        {(Object.keys(categoryDefinitions) as ObjectCategory[]).map((item) => {
-          const Icon = iconByCategory[item]
-          return (
-            <button key={item} className={`category-choice ${category === item ? 'selected' : ''}`} onClick={() => setCategory(item)}>
-              <Icon size={22} /><strong>{categoryDefinitions[item].label}</strong>
+      <div className="voice-progress" aria-hidden="true">
+        {steps.map((item, index) => <span key={item} className={index <= stepIndex ? 'complete' : ''} />)}
+      </div>
+
+      <div className="voice-question">
+        <span className={`voice-orb ${speech.listening ? 'listening' : ''}`}><Mic size={28} /></span>
+        <div>
+          <span className="card-kicker">{speech.listening ? 'Listening now' : 'Spoken question'}</span>
+          <h3>{promptByStep[step]}</h3>
+          {voiceError && <p className="voice-error">{voiceError}</p>}
+        </div>
+      </div>
+
+      {step === 'category' && (
+        <div className="category-grid">
+          {(Object.keys(categoryDefinitions) as ObjectCategory[]).map((item) => {
+            const Icon = iconByCategory[item]
+            return (
+              <button key={item} className={`category-choice ${category === item ? 'selected' : ''}`} onClick={() => chooseCategory(item)}>
+                <Icon size={22} /><strong>{categoryDefinitions[item].label}</strong>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {step === 'review' ? (
+        <div className="spoken-review">
+          <div><span>Name</span><strong>{name}</strong></div>
+          <div><span>Type</span><strong>{categoryDefinitions[category].label}</strong></div>
+          <div><span>Purpose</span><strong>{purpose}</strong></div>
+          <div><span>Usual place</span><strong>{usualLocation}</strong></div>
+          <div><span>Voice</span><strong>{personality}</strong></div>
+          <div className="button-row">
+            <button className="primary-button" onClick={submit}><Check size={18} /> Yes, remember it</button>
+            <button className="secondary-button" onClick={() => setStepIndex(1)}><RotateCcw size={18} /> Make a correction</button>
+          </div>
+        </div>
+      ) : (
+        <div className="voice-controls">
+          {speech.supported && (
+            <button className={`primary-button large ${speech.listening ? 'listening' : ''}`} onClick={speech.listening ? speech.stop : speech.start}>
+              <Mic size={20} /> {speech.listening ? 'Listening… tap to stop' : 'Answer by voice'}
             </button>
-          )
-        })}
+          )}
+          <button className="secondary-button" onClick={() => repeatPrompt()}><Volume2 size={18} /> Repeat question</button>
+        </div>
+      )}
+
+      {step !== 'category' && step !== 'review' && (
+        <details className="typing-fallback">
+          <summary>Need to type instead?</summary>
+          <div className="composer">
+            <input value={fallbackAnswer} onChange={(event) => setFallbackAnswer(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && handleAnswer(fallbackAnswer)} placeholder="Optional keyboard answer" />
+            <button className="secondary-button" onClick={() => handleAnswer(fallbackAnswer)}>Continue</button>
+          </div>
+        </details>
+      )}
+
+      <div className="enrollment-summary">
+        {name && <span><b>Name</b> {name}</span>}
+        {purpose && <span><b>Purpose</b> {purpose}</span>}
+        {usualLocation && <span><b>Place</b> {usualLocation}</span>}
       </div>
-      <div className="form-grid">
-        <label><span>What should we call it?</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Bluebell" /></label>
-        <label><span>Where does it usually belong?</span><input value={usualLocation} onChange={(event) => setUsualLocation(event.target.value)} placeholder="On the living room mantel" /></label>
-        <label className="wide"><span>What is it for?</span><input value={purpose} onChange={(event) => setPurpose(event.target.value)} placeholder="I hold flowers and brighten the room." /></label>
-        <label className="wide"><span>What story should it remember?</span><textarea value={story} onChange={(event) => setStory(event.target.value)} placeholder="Anna gave this to me after our trip…" /></label>
-        <label><span>How should it sound?</span>
-          <select value={personality} onChange={(event) => setPersonality(event.target.value as typeof personality)}>
-            <option value="gentle">Gentle and reassuring</option>
-            <option value="cheerful">Warm and cheerful</option>
-            <option value="matter-of-fact">Clear and matter-of-fact</option>
-          </select>
-        </label>
-      </div>
-      <div className="privacy-note"><ShieldCheck size={18} /><span>The raw camera frame is discarded. This twin stores only a small color fingerprint for future matching.</span></div>
-      <button className="primary-button" disabled={!name.trim() || !purpose.trim()} onClick={submit}><Plus size={18} /> Create this twin</button>
+      <div className="privacy-note"><ShieldCheck size={18} /><span>The camera is already off. The raw frame was discarded; only a compact fingerprint remains.</span></div>
     </section>
   )
 }

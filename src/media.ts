@@ -98,11 +98,16 @@ export function useSpeechInput(onTranscript: (transcript: string) => void) {
   return { listening, supported, start, stop }
 }
 
-export function speak(text: string): void {
-  if (!('speechSynthesis' in window)) return
+export function speak(text: string, onEnd?: () => void): void {
+  if (!('speechSynthesis' in window)) {
+    onEnd?.()
+    return
+  }
   window.speechSynthesis.cancel()
   const utterance = new SpeechSynthesisUtterance(text)
   utterance.rate = 0.92
   utterance.pitch = 1
+  utterance.onend = () => onEnd?.()
+  utterance.onerror = () => onEnd?.()
   window.speechSynthesis.speak(utterance)
 }

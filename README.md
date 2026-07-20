@@ -14,6 +14,8 @@ Camera access requires `localhost` or HTTPS. Speech input uses the browser Web S
 ## What the prototype implements
 
 - Mobile-first camera and voice experience
+- Immediate spoken “Picture taken” feedback, camera shutdown, and automatic progression
+- One-question-at-a-time hands-free enrollment with voice commands and keyboard fallback
 - Local visual fingerprints and explicit identity confirmation
 - Three typed state schemas: sentimental item, appliance, and personal belonging
 - Structured state proposals with confidence and safety confirmation
@@ -26,13 +28,15 @@ The local matching algorithm is deliberately lightweight: it compares normalized
 
 ## Data flow
 
-1. A frame is sampled only after the user taps **Look at this object**.
+1. A frame is sampled only after the user taps **Take picture**.
 2. The frame is reduced to a 48-value histogram in the browser and discarded.
-3. Similarity search proposes a twin; the user confirms the identity.
-4. Spoken or typed observations are parsed against the category’s allowed state schema.
-5. Consequential, medication-related, low-confidence, or ambiguous changes require confirmation.
-6. Accepted changes create immutable events and update the current state.
-7. Object responses retrieve only from the approved profile and confirmed state.
+3. The app vibrates, says “Picture taken,” turns the camera off, and advances automatically.
+4. Similarity search proposes a twin; the user confirms the identity by voice or button.
+5. New objects are introduced through a guided voice interview after they can be put down.
+6. Spoken or typed observations are parsed against the category’s allowed state schema.
+7. Consequential, medication-related, low-confidence, or ambiguous changes require spoken or visible confirmation.
+8. Accepted changes create immutable events and update the current state.
+9. Object responses retrieve only from the approved profile and confirmed state.
 
 ## Verification
 
