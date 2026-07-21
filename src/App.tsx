@@ -610,7 +610,7 @@ function EnrollmentForm({
 
   function repeatPrompt(prefix = '') {
     setVoiceError('')
-    speech.stop()
+    speech.cancel()
     speak(`${prefix}${promptByStep[step]}`, speech.supported ? listenAfterPrompt : undefined)
   }
 

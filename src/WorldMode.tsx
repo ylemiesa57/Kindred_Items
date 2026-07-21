@@ -134,7 +134,7 @@ export function WorldMode({
   function stopWorld() {
     setActive(false)
     camera.stop()
-    worldSpeech.stop()
+    worldSpeech.cancel()
     setSeeingPaused(false)
     setListeningPaused(false)
     setScene(null)
@@ -203,7 +203,7 @@ export function WorldMode({
           <button className="secondary-button" onClick={() => {
             const nextPaused = !listeningPaused
             setListeningPaused(nextPaused)
-            if (nextPaused) worldSpeech.stop()
+            if (nextPaused) worldSpeech.cancel()
           }}>
             {listeningPaused ? <Mic size={18} /> : <MicOff size={18} />}
             {listeningPaused ? 'Resume voice input' : 'Pause voice input'}

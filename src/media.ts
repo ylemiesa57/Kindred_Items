@@ -74,12 +74,25 @@ export function useSpeechInput(onTranscript: (transcript: string) => void) {
   const chunksRef = useRef<Blob[]>([])
   const heardSpeechRef = useRef(false)
   const discardRecordingRef = useRef(false)
+  const manualStopRef = useRef(false)
+  const listeningRef = useRef(false)
+  const processingRef = useRef(false)
   const [listening, setListening] = useState(false)
   const [processing, setProcessing] = useState(false)
   const [error, setError] = useState('')
   const recorderSupported = Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder)
   const browserRecognitionSupported = Boolean(window.SpeechRecognition || window.webkitSpeechRecognition)
   const supported = recorderSupported || browserRecognitionSupported
+
+  const setListeningState = useCallback((value: boolean) => {
+    listeningRef.current = value
+    setListening(value)
+  }, [])
+
+  const setProcessingState = useCallback((value: boolean) => {
+    processingRef.current = value
+    setProcessing(value)
+  }, [])
 
   const cleanUpAudio = useCallback(() => {
     if (silenceFrameRef.current !== null) cancelAnimationFrame(silenceFrameRef.current)
@@ -92,7 +105,7 @@ export function useSpeechInput(onTranscript: (transcript: string) => void) {
   }, [])
 
   const transcribeRecording = useCallback(async (blob: Blob) => {
-    setProcessing(true)
+    setProcessingState(true)
     setError('')
     try {
       const form = new FormData()
@@ -107,17 +120,27 @@ export function useSpeechInput(onTranscript: (transcript: string) => void) {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Voice input is unavailable.')
     } finally {
-      setProcessing(false)
+      setProcessingState(false)
     }
-  }, [onTranscript])
+  }, [onTranscript, setProcessingState])
 
   const stop = useCallback(() => {
     if (recorderRef.current?.state === 'recording') {
+      manualStopRef.current = true
       recorderRef.current.stop()
     }
     recognitionRef.current?.stop()
-    setListening(false)
-  }, [])
+    setListeningState(false)
+  }, [setListeningState])
+
+  const cancel = useCallback(() => {
+    if (recorderRef.current?.state === 'recording') {
+      discardRecordingRef.current = true
+      recorderRef.current.stop()
+    }
+    recognitionRef.current?.stop()
+    setListeningState(false)
+  }, [setListeningState])
 
   const startBrowserRecognition = useCallback(() => {
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
@@ -130,15 +153,15 @@ export function useSpeechInput(onTranscript: (transcript: string) => void) {
       const transcript = event.results[event.results.length - 1][0].transcript
       onTranscript(transcript)
     }
-    recognition.onerror = () => setListening(false)
-    recognition.onend = () => setListening(false)
+    recognition.onerror = () => setListeningState(false)
+    recognition.onend = () => setListeningState(false)
     recognitionRef.current = recognition
     recognition.start()
-    setListening(true)
-  }, [onTranscript])
+    setListeningState(true)
+  }, [onTranscript, setListeningState])
 
   const start = useCallback(async () => {
-    if (listening || processing) return
+    if (listeningRef.current || processingRef.current) return
     setError('')
 
     if (!recorderSupported) {
@@ -167,15 +190,16 @@ export function useSpeechInput(onTranscript: (transcript: string) => void) {
         discardRecordingRef.current = true
         setError('The microphone recording failed. Please try again.')
         cleanUpAudio()
-        setListening(false)
+        setListeningState(false)
       }
       recorder.onstop = () => {
         const heardSpeech = heardSpeechRef.current
         const shouldDiscard = discardRecordingRef.current
+        const manuallyStopped = manualStopRef.current
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' })
         cleanUpAudio()
         if (shouldDiscard) return
-        if (!heardSpeech) {
+        if (!heardSpeech && !manuallyStopped) {
           setError('I did not hear an answer. Please try again when you are ready.')
           return
         }
@@ -184,8 +208,9 @@ export function useSpeechInput(onTranscript: (transcript: string) => void) {
       recorderRef.current = recorder
       heardSpeechRef.current = false
       discardRecordingRef.current = false
+      manualStopRef.current = false
       recorder.start()
-      setListening(true)
+      setListeningState(true)
 
       const audioContext = new AudioContext()
       const analyser = audioContext.createAnalyser()
@@ -197,6 +222,8 @@ export function useSpeechInput(onTranscript: (transcript: string) => void) {
       let heardSpeech = false
       let lastSpeechAt = startedAt
       let speechFrames = 0
+      let noiseFloor = 0.004
+      let calibrationFrames = 0
       const watchSilence = () => {
         if (recorder.state !== 'recording') return
         analyser.getByteTimeDomainData(levels)
@@ -207,7 +234,12 @@ export function useSpeechInput(onTranscript: (transcript: string) => void) {
         }
         const rms = Math.sqrt(energy / levels.length)
         const now = performance.now()
-        if (rms > 0.025) {
+        if (now - startedAt < 450) {
+          noiseFloor = (noiseFloor * calibrationFrames + rms) / (calibrationFrames + 1)
+          calibrationFrames += 1
+        }
+        const speechThreshold = Math.max(0.006, noiseFloor * 2.2)
+        if (now - startedAt >= 450 && rms > speechThreshold) {
           speechFrames += 1
           if (speechFrames >= 4) {
             heardSpeech = true
@@ -219,7 +251,7 @@ export function useSpeechInput(onTranscript: (transcript: string) => void) {
         }
         if ((heardSpeech && now - lastSpeechAt > 1300) || now - startedAt > 15000) {
           recorder.stop()
-          setListening(false)
+          setListeningState(false)
           return
         }
         silenceFrameRef.current = requestAnimationFrame(watchSilence)
@@ -228,9 +260,9 @@ export function useSpeechInput(onTranscript: (transcript: string) => void) {
     } catch {
       setError('Microphone access was not granted. Check the browser permission and try again.')
       cleanUpAudio()
-      setListening(false)
+      setListeningState(false)
     }
-  }, [cleanUpAudio, listening, processing, recorderSupported, startBrowserRecognition, transcribeRecording])
+  }, [cleanUpAudio, recorderSupported, setListeningState, startBrowserRecognition, transcribeRecording])
 
   useEffect(() => () => {
     if (recorderRef.current?.state === 'recording') {
@@ -241,7 +273,7 @@ export function useSpeechInput(onTranscript: (transcript: string) => void) {
     cleanUpAudio()
   }, [cleanUpAudio])
 
-  return { listening, processing, error, supported, start, stop }
+  return { listening, processing, error, supported, start, stop, cancel }
 }
 
 export function speak(text: string, onEnd?: () => void): void {
