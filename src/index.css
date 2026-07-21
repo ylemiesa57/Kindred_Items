@@ -1,35 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500;1,600&family=DM+Sans:wght@400;500;600;700&display=swap');
 
 :root {
-  --canvas: #f7f5ef;
-  --paper: #fffefa;
-  --ink: #213129;
-  --muted: #69736d;
-  --line: #dedfd8;
-  --line-strong: #c8ccc4;
-  --forest: #315e4b;
-  --forest-dark: #244939;
-  --sage: #8aa897;
-  --mint-soft: #eaf2ec;
-  --mint-line: #cddfd3;
-  --terracotta: #b45f46;
-  --rose: #9c5363;
-  --rose-soft: #f6e9ec;
-  --ochre: #8b6a20;
-  --gold-soft: #f7f0d9;
-  --gold-line: #e5d7a7;
-  --blue: #466b86;
-  --blue-soft: #e9f0f4;
-  --blue-line: #cbdbe4;
-  --danger: #9f4238;
-  --danger-soft: #faece9;
-  --danger-line: #e7c1bb;
-  --sans: 'DM Sans', system-ui, sans-serif;
-  --serif: 'Newsreader', Georgia, serif;
-
-  color: var(--ink);
-  background: var(--canvas);
-  font: 15px/1.5 var(--sans);
+  color: #fff;
+  background: #11091e;
+  font: 15px/1.5 'DM Sans', system-ui, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -44,31 +18,11 @@ body {
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
+  overflow-x: hidden;
 }
 
-button,
-input,
-textarea,
-select {
+button {
   font: inherit;
-}
-
-h1,
-h2,
-h3,
-p {
-  margin-top: 0;
-}
-
-h1,
-h2,
-h3 {
-  color: var(--ink);
-}
-
-h2 {
-  font-size: 21px;
-  line-height: 1.2;
 }
 
 @media (prefers-reduced-motion: reduce) {
