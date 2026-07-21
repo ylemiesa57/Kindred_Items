@@ -7,27 +7,27 @@ A privacy-first prototype for stateful, conversational object twins. Point a pho
 ```bash
 npm install
 copy .env.example .env
-# Add OPENAI_API_KEY to .env
+# Add GROQ_API_KEY to .env
 npm run dev
 ```
 
-Open `http://localhost:5173`. Camera and microphone access require `localhost` or HTTPS. The Vite client proxies `/api` to the local server on port 8787, so the OpenAI API key never enters browser code.
+Open `http://localhost:5173`. Camera and microphone access require `localhost` or HTTPS. The Vite client proxies `/api` to the local server on port 8787, so the Groq API key never enters browser code.
 
-OpenAI powers:
+Groq powers:
 
-- Realtime speech-to-speech World Mode over WebRTC with a short-lived client secret
-- Recorded speech transcription for enrollment and confirmations
-- Structured multi-object analysis from temporary World Mode frames
+- Whisper Large V3 Turbo transcription for enrollment, confirmations, and World Mode questions
+- Qwen 3.6 vision reasoning over temporary World Mode frames
+- Structured multi-object analysis and grounded question answering
 
-Models are configurable in `.env`. `npm run start` serves the built production app after `npm run build`.
+Browser speech synthesis provides spoken responses without another paid service. Models are configurable in `.env`. `npm run start` serves the built production app after `npm run build`.
 
 ## What V3 implements
 
 - Immediate spoken “Picture taken” feedback, camera shutdown, and automatic progression
 - One-question-at-a-time hands-free enrollment with voice commands and keyboard fallback
-- OpenAI transcription with automatic end-of-speech detection and visible processing/error states
+- Groq transcription with automatic end-of-speech detection and visible processing/error states
 - A global **Introduce another object** action and auto-starting introduction camera
-- Explicit World Mode with live scene understanding, multi-object matching, realtime conversation, camera pause, microphone mute, and exit controls
+- Explicit World Mode with live scene understanding, multi-object matching, tap-to-talk conversation, camera pause, voice-input pause, and exit controls
 - Local visual fingerprints and explicit identity confirmation
 - Three typed state schemas: sentimental item, appliance, and personal belonging
 - Structured state proposals with confidence and safety confirmation
@@ -54,10 +54,10 @@ The local matching algorithm compares normalized color histograms. It demonstrat
 
 1. The user explicitly starts a visible World Mode session.
 2. While active, a frame is sampled about every eight seconds, but unchanged scenes are skipped locally.
-3. Temporary compressed frames are sent through the server to OpenAI for structured visual analysis; this app does not persist them.
+3. Temporary compressed frames are sent through the server to Groq for structured visual analysis; this app does not persist them.
 4. The scene graph updates known and unknown objects without automatically changing persistent twin state.
-5. Realtime voice receives the latest scene as grounded instructions. Suggested state changes still require confirmation.
-6. Pause seeing, pause listening, and exit controls are always visible. Exiting closes camera, microphone, and Realtime connections.
+5. Tap-to-talk questions are transcribed by Groq, answered from the latest frame, and spoken with the browser’s local voice.
+6. Suggested state changes still require confirmation. Pause seeing, pause voice input, and exit controls remain visible.
 
 ## Verification
 

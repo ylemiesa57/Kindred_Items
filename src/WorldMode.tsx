@@ -14,8 +14,7 @@ import {
   Sparkles,
 } from 'lucide-react'
 import type { ObjectTwin } from './domain'
-import { useCamera } from './media'
-import { useRealtimeVoice } from './realtime'
+import { speak, useCamera, useSpeechInput } from './media'
 import { cosineSimilarity, fingerprintImage } from './vision'
 
 type WorldObject = {
@@ -29,18 +28,10 @@ type WorldObject = {
 
 type WorldScene = {
   summary: string
+  spokenResponse: string
   importantChange: string | null
   objects: WorldObject[]
 }
-
-const baseInstructions = `
-You are Kindred World Guide, a calm voice companion for memory support.
-Speak in short, respectful sentences and wait for the person to finish.
-Use only the current structured scene and confirmed object twin information in your instructions.
-Say "the camera appears to show" for visual observations and "you previously confirmed" for stored memories.
-Never diagnose, make medication decisions, claim consciousness, imply hidden surveillance, or invent events outside the current camera session.
-If identity or state is uncertain, say so and ask a simple yes-or-no question.
-`
 
 function captureFrame(video: HTMLVideoElement): string {
   const canvas = document.createElement('canvas')
@@ -54,20 +45,6 @@ function captureFrame(video: HTMLVideoElement): string {
   return canvas.toDataURL('image/jpeg', 0.68)
 }
 
-function instructionsForScene(scene: WorldScene | null, twins: ObjectTwin[]): string {
-  const twinContext = twins.map((twin) => ({
-    id: twin.id,
-    name: twin.name,
-    purpose: twin.purpose,
-    usualLocation: twin.usualLocation,
-    currentState: twin.currentState,
-  }))
-  return `${baseInstructions}
-Known twins: ${JSON.stringify(twinContext)}
-Current visible scene: ${JSON.stringify(scene)}
-`
-}
-
 export function WorldMode({
   twins,
   onIntroduce,
@@ -76,9 +53,9 @@ export function WorldMode({
   onIntroduce: () => void
 }) {
   const camera = useCamera()
-  const voice = useRealtimeVoice()
   const [active, setActive] = useState(false)
   const [seeingPaused, setSeeingPaused] = useState(false)
+  const [listeningPaused, setListeningPaused] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [scene, setScene] = useState<WorldScene | null>(null)
   const [error, setError] = useState('')
@@ -87,6 +64,12 @@ export function WorldMode({
   const previousFingerprintRef = useRef<number[] | null>(null)
   const analysisInFlightRef = useRef(false)
   const sceneRef = useRef<WorldScene | null>(null)
+  const analyzeRef = useRef<(force?: boolean, question?: string) => Promise<void>>(async () => undefined)
+  const worldSpeech = useSpeechInput((transcript) => {
+    if (listeningPaused) return
+    setQuestion(transcript)
+    void analyzeRef.current(true, transcript)
+  })
 
   const analyze = useCallback(async (force = false, askedQuestion = '') => {
     const video = camera.videoRef.current
@@ -127,16 +110,10 @@ export function WorldMode({
       sceneRef.current = payload
       setScene(payload)
       setLastObservedAt(new Date().toISOString())
-      await voice.updateInstructions(instructionsForScene(payload, twins))
-      if (payload.importantChange) {
-        voice.sendContext(
-          `The latest scene has one potentially important visible change: ${payload.importantChange}. Briefly tell the person what the camera appears to show, include uncertainty, and ask whether they want to confirm it.`,
-        )
-      }
       if (askedQuestion) {
-        voice.sendContext(
-          `The person asks: ${askedQuestion}. Answer using this current scene: ${JSON.stringify(payload)}.`,
-        )
+        speak(payload.spokenResponse)
+      } else if (payload.importantChange) {
+        speak(`The camera appears to show ${payload.importantChange}`)
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'World Mode could not analyze the room.')
@@ -144,20 +121,22 @@ export function WorldMode({
       analysisInFlightRef.current = false
       setAnalyzing(false)
     }
-  }, [camera.active, seeingPaused, twins, voice.sendContext, voice.updateInstructions])
+  }, [camera.active, seeingPaused, twins])
+
+  analyzeRef.current = analyze
 
   async function startWorld() {
     setError('')
     setActive(true)
     await camera.start()
-    await voice.connect(instructionsForScene(null, twins))
   }
 
   function stopWorld() {
     setActive(false)
     camera.stop()
-    voice.disconnect()
+    worldSpeech.stop()
     setSeeingPaused(false)
+    setListeningPaused(false)
     setScene(null)
     sceneRef.current = null
     previousFingerprintRef.current = null
@@ -189,16 +168,16 @@ export function WorldMode({
           <span className="world-symbol"><Globe2 size={34} /></span>
           <p className="eyebrow">V3 experience</p>
           <h1>Enter your object world</h1>
-          <p>World Mode keeps the camera and realtime voice active only during this visible session. It builds a temporary scene of the objects around you and reasons from that scene.</p>
+          <p>World Mode keeps the camera active only during this visible session. Groq builds a temporary scene of the objects around you, and voice input runs only when you tap Talk.</p>
           <div className="world-principles">
             <span><Eye size={17} /> Visible session only</span>
             <span><ShieldCheck size={17} /> Frames are not stored</span>
-            <span><Sparkles size={17} /> OpenAI visual reasoning</span>
+            <span><Sparkles size={17} /> Groq visual reasoning</span>
           </div>
           <button className="primary-button large" onClick={() => void startWorld()}>
             <Camera size={20} /> Start World Mode
           </button>
-          <small>The browser will request camera and microphone permission.</small>
+          <small>The browser requests camera permission now and microphone permission when you tap Talk.</small>
         </section>
       </div>
     )
@@ -221,9 +200,13 @@ export function WorldMode({
             {seeingPaused ? <Eye size={18} /> : <EyeOff size={18} />}
             {seeingPaused ? 'Resume seeing' : 'Pause seeing'}
           </button>
-          <button className="secondary-button" onClick={() => voice.setMuted(voice.status !== 'muted')}>
-            {voice.status === 'muted' ? <Mic size={18} /> : <MicOff size={18} />}
-            {voice.status === 'muted' ? 'Resume listening' : 'Pause listening'}
+          <button className="secondary-button" onClick={() => {
+            const nextPaused = !listeningPaused
+            setListeningPaused(nextPaused)
+            if (nextPaused) worldSpeech.stop()
+          }}>
+            {listeningPaused ? <Mic size={18} /> : <MicOff size={18} />}
+            {listeningPaused ? 'Resume voice input' : 'Pause voice input'}
           </button>
           <button className="danger-button" onClick={stopWorld}>Exit World Mode</button>
         </div>
@@ -235,7 +218,9 @@ export function WorldMode({
           {!camera.active && <div className="world-camera-paused"><EyeOff size={38} /><strong>Seeing is paused</strong></div>}
           <div className="world-camera-status">
             <span><i /> {camera.active ? 'Camera live' : 'Camera off'}</span>
-            <span className={`voice-state ${voice.status}`}><Mic size={14} /> {voice.status}</span>
+            <span className={`voice-state ${worldSpeech.listening ? 'listening' : worldSpeech.processing ? 'speaking' : listeningPaused ? 'muted' : ''}`}>
+              <Mic size={14} /> {listeningPaused ? 'voice paused' : worldSpeech.processing ? 'understanding' : worldSpeech.listening ? 'listening' : 'tap to talk'}
+            </span>
           </div>
           {analyzing && <div className="world-analyzing"><ScanSearch size={23} /> Understanding this scene…</div>}
         </section>
@@ -248,7 +233,7 @@ export function WorldMode({
 
           {error && <div className="inline-alert"><AlertCircle size={17} /> {error}</div>}
           {camera.error && <div className="inline-alert"><AlertCircle size={17} /> {camera.error}</div>}
-          {voice.error && <div className="inline-alert"><AlertCircle size={17} /> {voice.error}</div>}
+          {worldSpeech.error && <div className="inline-alert"><AlertCircle size={17} /> {worldSpeech.error}</div>}
 
           {!scene && !analyzing ? (
             <div className="world-empty"><ScanSearch size={27} /><p>Point the camera around the room, then analyze the scene.</p></div>
@@ -278,8 +263,15 @@ export function WorldMode({
       </div>
 
       <section className="world-question">
-        <div><p className="eyebrow">Ask the room</p><h2>Speak naturally, or type a fallback question</h2></div>
+        <div><p className="eyebrow">Ask the room</p><h2>Tap to speak, or type a question</h2></div>
         <div className="composer">
+          <button
+            className={`secondary-button ${worldSpeech.listening ? 'listening' : ''}`}
+            onClick={worldSpeech.listening ? worldSpeech.stop : worldSpeech.start}
+            disabled={listeningPaused || worldSpeech.processing}
+          >
+            <Mic size={18} /> {worldSpeech.processing ? 'Understanding…' : worldSpeech.listening ? 'Listening…' : 'Talk'}
+          </button>
           <input value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && askWorld()} placeholder="Where are my glasses?" />
           <button className="primary-button" onClick={askWorld}>Ask from this view</button>
         </div>

@@ -4,6 +4,7 @@ import multer from 'multer'
 import OpenAI, { toFile } from 'openai'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { z } from 'zod'
 
 const app = express()
 const port = Number(process.env.PORT ?? 8787)
@@ -15,75 +16,29 @@ const upload = multer({
 app.disable('x-powered-by')
 app.use(express.json({ limit: '8mb' }))
 
-function openAIClient() {
-  const apiKey = process.env.OPENAI_API_KEY
+function groqClient() {
+  const apiKey = process.env.GROQ_API_KEY
   if (!apiKey) return null
-  return new OpenAI({ apiKey })
+  return new OpenAI({
+    apiKey,
+    baseURL: 'https://api.groq.com/openai/v1',
+  })
 }
 
 app.get('/api/health', (_request, response) => {
   response.json({
     ok: true,
-    openaiConfigured: Boolean(process.env.OPENAI_API_KEY),
-    realtimeModel: process.env.OPENAI_REALTIME_MODEL ?? 'gpt-realtime-2',
-    visionModel: process.env.OPENAI_VISION_MODEL ?? 'gpt-5-mini',
+    provider: 'groq',
+    groqConfigured: Boolean(process.env.GROQ_API_KEY),
+    transcriptionModel: process.env.GROQ_TRANSCRIPTION_MODEL ?? 'whisper-large-v3-turbo',
+    visionModel: process.env.GROQ_VISION_MODEL ?? 'qwen/qwen3.6-27b',
   })
 })
 
-app.post('/api/realtime-token', async (_request, response) => {
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) {
-    response.status(503).json({ error: 'OpenAI is not configured on the server.' })
-    return
-  }
-
-  try {
-    const upstream = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        expires_after: { anchor: 'created_at', seconds: 600 },
-        session: {
-          type: 'realtime',
-          model: process.env.OPENAI_REALTIME_MODEL ?? 'gpt-realtime-2',
-          output_modalities: ['audio'],
-          instructions:
-            'You are the voice of Kindred Objects, a calm memory-support companion. Use short, respectful sentences. Never diagnose, make medication decisions, claim hidden observations, or imply consciousness. Clearly distinguish what the camera sees from what a person previously confirmed.',
-          audio: {
-            input: {
-              noise_reduction: { type: 'far_field' },
-              turn_detection: {
-                type: 'semantic_vad',
-                create_response: true,
-                interrupt_response: true,
-                eagerness: 'medium',
-              },
-            },
-          },
-        },
-      }),
-    })
-
-    const payload = await upstream.json()
-    if (!upstream.ok) {
-      console.error('Realtime token request failed', upstream.status, payload)
-      response.status(502).json({ error: 'Could not start a realtime voice session.' })
-      return
-    }
-    response.json(payload)
-  } catch (error) {
-    console.error('Realtime token error', error)
-    response.status(502).json({ error: 'Could not reach the realtime voice service.' })
-  }
-})
-
 app.post('/api/transcribe', upload.single('audio'), async (request, response) => {
-  const client = openAIClient()
+  const client = groqClient()
   if (!client) {
-    response.status(503).json({ error: 'OpenAI is not configured on the server.' })
+    response.status(503).json({ error: 'Groq is not configured on the server.' })
     return
   }
   if (!request.file) {
@@ -99,7 +54,7 @@ app.post('/api/transcribe', upload.single('audio'), async (request, response) =>
     )
     const transcript = await client.audio.transcriptions.create({
       file,
-      model: process.env.OPENAI_TRANSCRIPTION_MODEL ?? 'gpt-4o-mini-transcribe',
+      model: process.env.GROQ_TRANSCRIPTION_MODEL ?? 'whisper-large-v3-turbo',
       language: 'en',
     })
     response.json({ text: transcript.text.trim() })
@@ -109,12 +64,13 @@ app.post('/api/transcribe', upload.single('audio'), async (request, response) =>
   }
 })
 
-const worldSceneSchema = {
+const worldSceneJsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['summary', 'objects', 'importantChange'],
+  required: ['summary', 'spokenResponse', 'objects', 'importantChange'],
   properties: {
     summary: { type: 'string' },
+    spokenResponse: { type: 'string' },
     importantChange: { type: ['string', 'null'] },
     objects: {
       type: 'array',
@@ -136,10 +92,24 @@ const worldSceneSchema = {
   },
 } as const
 
+const worldSceneSchema = z.object({
+  summary: z.string(),
+  spokenResponse: z.string(),
+  importantChange: z.string().nullable(),
+  objects: z.array(z.object({
+    label: z.string(),
+    matchedTwinId: z.string().nullable(),
+    description: z.string(),
+    location: z.string(),
+    visibleState: z.string(),
+    confidence: z.number().min(0).max(1),
+  })).max(20),
+})
+
 app.post('/api/world/analyze', async (request, response) => {
-  const client = openAIClient()
+  const client = groqClient()
   if (!client) {
-    response.status(503).json({ error: 'OpenAI is not configured on the server.' })
+    response.status(503).json({ error: 'Groq is not configured on the server.' })
     return
   }
 
@@ -155,39 +125,43 @@ app.post('/api/world/analyze', async (request, response) => {
   }
 
   try {
-    const result = await client.responses.create({
-      model: process.env.OPENAI_VISION_MODEL ?? 'gpt-5-mini',
-      input: [
+    const result = await client.chat.completions.create({
+      model: process.env.GROQ_VISION_MODEL ?? 'qwen/qwen3.6-27b',
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are Kindred World Guide, a calm memory-support companion. Return only valid JSON matching the requested schema. Never diagnose, make medication decisions, claim hidden observations, or imply consciousness.',
+        },
         {
           role: 'user',
           content: [
             {
-              type: 'input_text',
+              type: 'text',
               text: [
                 'Analyze this room frame for a memory-support object world.',
                 'List distinct visible household objects. Match a known twin only when the description provides convincing evidence; otherwise use null.',
                 'Describe only visible state. Do not infer events outside this frame.',
                 'Call out at most one important, clearly visible change. Do not make medical or emergency claims.',
+                'spokenResponse must be one short, respectful sentence. If there is a question, answer it from visible or confirmed information and state uncertainty. Otherwise summarize what the camera appears to show.',
                 `Known twins: ${JSON.stringify(twins ?? [])}`,
                 `Previous scene: ${JSON.stringify(previousScene ?? null)}`,
                 question ? `The person asks: ${question}` : '',
+                `Required JSON schema: ${JSON.stringify(worldSceneJsonSchema)}`,
               ].filter(Boolean).join('\n'),
             },
-            { type: 'input_image', image_url: image, detail: 'low' },
+            { type: 'image_url', image_url: { url: image } },
           ],
         },
       ],
-      text: {
-        format: {
-          type: 'json_schema',
-          name: 'kindred_world_scene',
-          strict: true,
-          schema: worldSceneSchema,
-        },
-      },
+      response_format: { type: 'json_object' },
+      temperature: 0.2,
+      max_completion_tokens: 1800,
     })
 
-    response.json(JSON.parse(result.output_text))
+    const content = result.choices[0]?.message.content
+    if (!content) throw new Error('Groq returned an empty scene analysis.')
+    response.json(worldSceneSchema.parse(JSON.parse(content)))
   } catch (error) {
     console.error('World analysis error', error)
     response.status(502).json({ error: 'The room could not be analyzed right now.' })

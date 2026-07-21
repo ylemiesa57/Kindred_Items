@@ -625,9 +625,11 @@ select:focus-visible {
   flex-wrap: wrap;
 }
 
-.primary-button.listening {
+.primary-button.listening,
+.secondary-button.listening {
   border-color: var(--rose);
   background: var(--rose);
+  color: white;
 }
 
 .typing-fallback {

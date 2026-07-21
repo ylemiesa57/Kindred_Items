@@ -12,7 +12,6 @@
     "start": "cross-env NODE_ENV=production node server-dist/index.js"
   },
   "dependencies": {
-    "@openai/agents": "^0.13.5",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "lucide-react": "^1.25.0",
