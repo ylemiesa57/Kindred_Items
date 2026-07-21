@@ -9,6 +9,7 @@ import { sanitizeTranscript } from './transcription.js'
 
 const app = express()
 const port = Number(process.env.PORT ?? 8787)
+const host = process.env.HOST ?? '0.0.0.0'
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 12 * 1024 * 1024, files: 1 },
@@ -179,9 +180,9 @@ if (process.env.NODE_ENV === 'production') {
   const currentDirectory = path.dirname(fileURLToPath(import.meta.url))
   const dist = path.resolve(currentDirectory, '../dist')
   app.use(express.static(dist))
-  app.get('*', (_request, response) => response.sendFile(path.join(dist, 'index.html')))
+  app.get('/{*splat}', (_request, response) => response.sendFile(path.join(dist, 'index.html')))
 }
 
-app.listen(port, '127.0.0.1', () => {
-  console.log(`Kindred Objects server listening at http://127.0.0.1:${port}`)
+app.listen(port, host, () => {
+  console.log(`Kindred Objects server listening at http://${host}:${port}`)
 })
