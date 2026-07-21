@@ -29,6 +29,51 @@ declare global {
   }
 }
 
+async function normalizeRecording(blob: Blob): Promise<{ blob: Blob; signalLevel: number }> {
+  const context = new AudioContext()
+  try {
+    const decoded = await context.decodeAudioData(await blob.arrayBuffer())
+    const mono = new Float32Array(decoded.length)
+    for (let channelIndex = 0; channelIndex < decoded.numberOfChannels; channelIndex += 1) {
+      const channel = decoded.getChannelData(channelIndex)
+      for (let index = 0; index < channel.length; index += 1) {
+        mono[index] += channel[index] / decoded.numberOfChannels
+      }
+    }
+
+    let energy = 0
+    for (const sample of mono) energy += sample * sample
+    const signalLevel = mono.length ? Math.sqrt(energy / mono.length) : 0
+    const wav = new ArrayBuffer(44 + mono.length * 2)
+    const view = new DataView(wav)
+    const writeText = (offset: number, value: string) => {
+      for (let index = 0; index < value.length; index += 1) {
+        view.setUint8(offset + index, value.charCodeAt(index))
+      }
+    }
+    writeText(0, 'RIFF')
+    view.setUint32(4, 36 + mono.length * 2, true)
+    writeText(8, 'WAVE')
+    writeText(12, 'fmt ')
+    view.setUint32(16, 16, true)
+    view.setUint16(20, 1, true)
+    view.setUint16(22, 1, true)
+    view.setUint32(24, decoded.sampleRate, true)
+    view.setUint32(28, decoded.sampleRate * 2, true)
+    view.setUint16(32, 2, true)
+    view.setUint16(34, 16, true)
+    writeText(36, 'data')
+    view.setUint32(40, mono.length * 2, true)
+    for (let index = 0; index < mono.length; index += 1) {
+      const sample = Math.max(-1, Math.min(1, mono[index]))
+      view.setInt16(44 + index * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true)
+    }
+    return { blob: new Blob([wav], { type: 'audio/wav' }), signalLevel }
+  } finally {
+    await context.close()
+  }
+}
+
 export function useCamera() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -78,6 +123,8 @@ export function useSpeechInput(onTranscript: (transcript: string) => void) {
   const [listening, setListening] = useState(false)
   const [processing, setProcessing] = useState(false)
   const [error, setError] = useState('')
+  const [microphoneName, setMicrophoneName] = useState('')
+  const [lastSignalLevel, setLastSignalLevel] = useState<number | null>(null)
   const recorderSupported = Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder)
   const browserRecognitionSupported = Boolean(window.SpeechRecognition || window.webkitSpeechRecognition)
   const supported = recorderSupported || browserRecognitionSupported
@@ -106,9 +153,27 @@ export function useSpeechInput(onTranscript: (transcript: string) => void) {
     setProcessingState(true)
     setError('')
     try {
+      let recording = blob
+      try {
+        const normalized = await normalizeRecording(blob)
+        recording = normalized.blob
+        setLastSignalLevel(normalized.signalLevel)
+        if (normalized.signalLevel < 0.0005) {
+          throw new Error('The selected microphone recorded silence. Check the browser or Windows input device and try again.')
+        }
+      } catch (cause) {
+        if (cause instanceof Error && cause.message.includes('recorded silence')) throw cause
+        setLastSignalLevel(null)
+      }
       const form = new FormData()
-      const extension = blob.type.includes('ogg') ? 'ogg' : blob.type.includes('mp4') ? 'm4a' : 'webm'
-      form.append('audio', blob, `speech.${extension}`)
+      const extension = recording.type.includes('wav')
+        ? 'wav'
+        : recording.type.includes('ogg')
+          ? 'ogg'
+          : recording.type.includes('mp4')
+            ? 'm4a'
+            : 'webm'
+      form.append('audio', recording, `speech.${extension}`)
       const response = await fetch('/api/transcribe', { method: 'POST', body: form })
       const payload = await response.json() as { text?: string; error?: string }
       if (!response.ok || !payload.text) {
@@ -175,6 +240,11 @@ export function useSpeechInput(onTranscript: (transcript: string) => void) {
         },
       })
       audioStreamRef.current = stream
+      const track = stream.getAudioTracks()[0]
+      setMicrophoneName(track?.label || 'Default microphone')
+      if (track) {
+        track.onmute = () => setError('The selected microphone is muted by the browser or operating system.')
+      }
       const preferredType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find((type) =>
         MediaRecorder.isTypeSupported(type),
       )
@@ -261,7 +331,17 @@ export function useSpeechInput(onTranscript: (transcript: string) => void) {
     cleanUpAudio()
   }, [cleanUpAudio])
 
-  return { listening, processing, error, supported, start, stop, cancel }
+  return {
+    listening,
+    processing,
+    error,
+    microphoneName,
+    lastSignalLevel,
+    supported,
+    start,
+    stop,
+    cancel,
+  }
 }
 
 export function speak(text: string, onEnd?: () => void): void {

@@ -781,8 +781,14 @@ function EnrollmentForm({
       <div className="voice-question">
         <span className={`voice-orb ${speech.listening ? 'listening' : ''}`}><Mic size={28} /></span>
         <div>
-          <span className="card-kicker">{speech.listening ? 'Listening now' : 'Spoken question'}</span>
+          <span className="card-kicker">{speech.listening ? 'Listening now' : speech.processing ? 'Sending to Groq' : 'Spoken question'}</span>
           <h3>{promptByStep[step]}</h3>
+          {speech.microphoneName && (
+            <p className="microphone-note">
+              Input: {speech.microphoneName}
+              {speech.lastSignalLevel !== null && ` · Last signal ${speech.lastSignalLevel.toFixed(4)}`}
+            </p>
+          )}
           {(voiceError || speech.error) && <p className="voice-error">{voiceError || speech.error}</p>}
         </div>
       </div>

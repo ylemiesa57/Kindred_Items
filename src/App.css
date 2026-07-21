@@ -616,6 +616,12 @@ select:focus-visible {
   font-size: 12px;
 }
 
+.microphone-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .voice-controls {
   display: flex;
   align-items: center;
