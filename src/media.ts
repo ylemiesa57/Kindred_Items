@@ -72,9 +72,7 @@ export function useSpeechInput(onTranscript: (transcript: string) => void) {
   const audioContextRef = useRef<AudioContext | null>(null)
   const silenceFrameRef = useRef<number | null>(null)
   const chunksRef = useRef<Blob[]>([])
-  const heardSpeechRef = useRef(false)
   const discardRecordingRef = useRef(false)
-  const manualStopRef = useRef(false)
   const listeningRef = useRef(false)
   const processingRef = useRef(false)
   const [listening, setListening] = useState(false)
@@ -126,7 +124,6 @@ export function useSpeechInput(onTranscript: (transcript: string) => void) {
 
   const stop = useCallback(() => {
     if (recorderRef.current?.state === 'recording') {
-      manualStopRef.current = true
       recorderRef.current.stop()
     }
     recognitionRef.current?.stop()
@@ -193,22 +190,14 @@ export function useSpeechInput(onTranscript: (transcript: string) => void) {
         setListeningState(false)
       }
       recorder.onstop = () => {
-        const heardSpeech = heardSpeechRef.current
         const shouldDiscard = discardRecordingRef.current
-        const manuallyStopped = manualStopRef.current
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' })
         cleanUpAudio()
         if (shouldDiscard) return
-        if (!heardSpeech && !manuallyStopped) {
-          setError('I did not hear an answer. Please try again when you are ready.')
-          return
-        }
         if (blob.size > 0) void transcribeRecording(blob)
       }
       recorderRef.current = recorder
-      heardSpeechRef.current = false
       discardRecordingRef.current = false
-      manualStopRef.current = false
       recorder.start()
       setListeningState(true)
 
@@ -243,13 +232,12 @@ export function useSpeechInput(onTranscript: (transcript: string) => void) {
           speechFrames += 1
           if (speechFrames >= 4) {
             heardSpeech = true
-            heardSpeechRef.current = true
             lastSpeechAt = now
           }
         } else {
           speechFrames = Math.max(0, speechFrames - 1)
         }
-        if ((heardSpeech && now - lastSpeechAt > 1300) || now - startedAt > 15000) {
+        if ((heardSpeech && now - lastSpeechAt > 1300) || now - startedAt > 10000) {
           recorder.stop()
           setListeningState(false)
           return
