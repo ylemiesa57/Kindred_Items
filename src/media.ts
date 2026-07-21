@@ -72,6 +72,8 @@ export function useSpeechInput(onTranscript: (transcript: string) => void) {
   const audioContextRef = useRef<AudioContext | null>(null)
   const silenceFrameRef = useRef<number | null>(null)
   const chunksRef = useRef<Blob[]>([])
+  const heardSpeechRef = useRef(false)
+  const discardRecordingRef = useRef(false)
   const [listening, setListening] = useState(false)
   const [processing, setProcessing] = useState(false)
   const [error, setError] = useState('')
@@ -162,16 +164,26 @@ export function useSpeechInput(onTranscript: (transcript: string) => void) {
         if (event.data.size > 0) chunksRef.current.push(event.data)
       }
       recorder.onerror = () => {
+        discardRecordingRef.current = true
         setError('The microphone recording failed. Please try again.')
         cleanUpAudio()
         setListening(false)
       }
       recorder.onstop = () => {
+        const heardSpeech = heardSpeechRef.current
+        const shouldDiscard = discardRecordingRef.current
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' })
         cleanUpAudio()
+        if (shouldDiscard) return
+        if (!heardSpeech) {
+          setError('I did not hear an answer. Please try again when you are ready.')
+          return
+        }
         if (blob.size > 0) void transcribeRecording(blob)
       }
       recorderRef.current = recorder
+      heardSpeechRef.current = false
+      discardRecordingRef.current = false
       recorder.start()
       setListening(true)
 
@@ -184,6 +196,7 @@ export function useSpeechInput(onTranscript: (transcript: string) => void) {
       const startedAt = performance.now()
       let heardSpeech = false
       let lastSpeechAt = startedAt
+      let speechFrames = 0
       const watchSilence = () => {
         if (recorder.state !== 'recording') return
         analyser.getByteTimeDomainData(levels)
@@ -195,8 +208,14 @@ export function useSpeechInput(onTranscript: (transcript: string) => void) {
         const rms = Math.sqrt(energy / levels.length)
         const now = performance.now()
         if (rms > 0.025) {
-          heardSpeech = true
-          lastSpeechAt = now
+          speechFrames += 1
+          if (speechFrames >= 4) {
+            heardSpeech = true
+            heardSpeechRef.current = true
+            lastSpeechAt = now
+          }
+        } else {
+          speechFrames = Math.max(0, speechFrames - 1)
         }
         if ((heardSpeech && now - lastSpeechAt > 1300) || now - startedAt > 15000) {
           recorder.stop()
@@ -214,7 +233,10 @@ export function useSpeechInput(onTranscript: (transcript: string) => void) {
   }, [cleanUpAudio, listening, processing, recorderSupported, startBrowserRecognition, transcribeRecording])
 
   useEffect(() => () => {
-    if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
+    if (recorderRef.current?.state === 'recording') {
+      discardRecordingRef.current = true
+      recorderRef.current.stop()
+    }
     recognitionRef.current?.stop()
     cleanUpAudio()
   }, [cleanUpAudio])

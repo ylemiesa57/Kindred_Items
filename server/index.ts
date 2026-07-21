@@ -5,6 +5,7 @@ import OpenAI, { toFile } from 'openai'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
+import { sanitizeTranscript } from './transcription.js'
 
 const app = express()
 const port = Number(process.env.PORT ?? 8787)
@@ -56,8 +57,14 @@ app.post('/api/transcribe', upload.single('audio'), async (request, response) =>
       file,
       model: process.env.GROQ_TRANSCRIPTION_MODEL ?? 'whisper-large-v3-turbo',
       language: 'en',
+      temperature: 0,
     })
-    response.json({ text: transcript.text.trim() })
+    const text = sanitizeTranscript(transcript.text)
+    if (!text) {
+      response.status(422).json({ error: 'No clear speech was detected. Please answer again.' })
+      return
+    }
+    response.json({ text })
   } catch (error) {
     console.error('Transcription error', error)
     response.status(502).json({ error: 'The recording could not be transcribed.' })

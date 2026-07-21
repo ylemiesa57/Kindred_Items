@@ -168,7 +168,15 @@ function App() {
 
   function confirmMatch() {
     if (!identityMatch) return
-    selectTwin(identityMatch.twin)
+    const linkedTwin = capturedFingerprint
+      ? {
+          ...identityMatch.twin,
+          fingerprints: [...identityMatch.twin.fingerprints, capturedFingerprint].slice(-5),
+          updatedAt: new Date().toISOString(),
+        }
+      : identityMatch.twin
+    setWorld((current) => ({ ...current, twins: upsertTwin(current.twins, linkedTwin) }))
+    selectTwin(linkedTwin)
     setIdentityMatch(null)
     setCapturedFingerprint(null)
     setStatus('')
@@ -596,10 +604,14 @@ function EnrollmentForm({
     review: `I have ${name || 'this object'}, a ${categoryDefinitions[category].label.toLowerCase()} used for ${purpose || 'the purpose you described'}, usually kept ${usualLocation || 'where you described'}. Should I remember this? Say yes or no.`,
   }
 
+  function listenAfterPrompt() {
+    window.setTimeout(() => speech.start(), 450)
+  }
+
   function repeatPrompt(prefix = '') {
     setVoiceError('')
     speech.stop()
-    speak(`${prefix}${promptByStep[step]}`, speech.supported ? speech.start : undefined)
+    speak(`${prefix}${promptByStep[step]}`, speech.supported ? listenAfterPrompt : undefined)
   }
 
   function advance() {
@@ -617,6 +629,7 @@ function EnrollmentForm({
   function handleAnswer(rawAnswer: string) {
     const answer = rawAnswer.trim()
     const normalized = answer.toLowerCase()
+    const genericNonAnswer = /^(thank you|thanks|ok(?:ay)?|yes|no|sure|uh+|um+)[.!]?$/i
     if (!answer) return
 
     if (/\b(stop|cancel|quit)\b/.test(normalized)) {
@@ -649,22 +662,47 @@ function EnrollmentForm({
     }
 
     if (step === 'name') {
-      setName(answer.replace(/^(call it|it is|this is)\s+/i, ''))
+      const nextName = answer.replace(/^(call it|it is|this is)\s+/i, '').trim()
+      if (genericNonAnswer.test(nextName) || nextName.length < 2 || nextName.length > 60) {
+        setVoiceError('That did not sound like an object name.')
+        speak('Please say a short name for the object.', listenAfterPrompt)
+        return
+      }
+      setName(nextName)
       advance()
       return
     }
     if (step === 'purpose') {
+      if (genericNonAnswer.test(answer) || answer.length > 240) {
+        setVoiceError('I did not hear what the object is used for.')
+        speak('Please tell me what this object is used for.', listenAfterPrompt)
+        return
+      }
       setPurpose(answer)
       advance()
       return
     }
     if (step === 'location') {
+      if (genericNonAnswer.test(answer) || answer.length > 120) {
+        setVoiceError('I did not hear where the object belongs.')
+        speak('Please tell me where this object usually belongs.', listenAfterPrompt)
+        return
+      }
       setUsualLocation(answer)
       advance()
       return
     }
     if (step === 'story') {
-      setStory(/\b(skip|no story|not now)\b/.test(normalized) ? '' : answer)
+      if (/\b(skip|no|no story|not now)\b/.test(normalized)) {
+        setStory('')
+      } else {
+        if (genericNonAnswer.test(answer) || answer.length > 700) {
+          setVoiceError('I did not hear a story. You can also say skip.')
+          speak('Please share the story, or say skip.', listenAfterPrompt)
+          return
+        }
+        setStory(answer)
+      }
       advance()
       return
     }
