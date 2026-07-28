@@ -15,17 +15,18 @@ npm run dev
 
 Open `http://localhost:5173`. Camera and microphone access require `localhost` or HTTPS. The Vite client proxies `/api` to the local server on port 8787, so the OpenRouter API key never enters browser code.
 
-OpenRouter (default model `openai/gpt-oss-20b:free`) powers:
+OpenRouter powers:
 
-- Structured World Mode reasoning over the objects you have registered and grounded question answering
+- World Mode scene analysis of the current camera frame, using a free vision model (`OPENROUTER_VISION_MODEL`, default `nvidia/nemotron-nano-12b-v2-vl:free`)
+- Grounded, text-only reasoning fallback when no frame is available, using `OPENROUTER_MODEL` (default `openai/gpt-oss-20b:free`)
 
-`gpt-oss` is a text-only model, so voice and vision are handled locally in the browser:
+Voice is handled locally in the browser:
 
 - Speech input uses the browser Web Speech API (no external transcription service)
 - Speech output uses `speechSynthesis`
-- World Mode change detection uses local color-histogram fingerprints; the camera frame itself is never sent to the model
+- World Mode change detection uses local color-histogram fingerprints, so the camera frame is only sent to the vision model when the scene actually changes, and is never persisted
 
-The model is configurable via `OPENROUTER_MODEL` in `.env`. `npm run start` serves the built production app after `npm run build`.
+Both models are configurable in `.env`. `npm run start` serves the built production app after `npm run build`.
 
 ## What V3 implements
 
@@ -60,9 +61,9 @@ The local matching algorithm compares normalized color histograms. It demonstrat
 
 1. The user explicitly starts a visible World Mode session.
 2. While active, a frame is sampled about every eight seconds, but unchanged scenes are skipped locally.
-3. Local color-histogram fingerprints detect when the scene changed; the camera frame itself is never sent off-device.
-4. The scene graph is built by gpt-oss (via OpenRouter) reasoning over your registered twins, without automatically changing persistent twin state.
-5. Tap-to-talk questions are transcribed by the browser Web Speech API, answered from your registered objects, and spoken with the browser’s local voice.
+3. Local color-histogram fingerprints detect when the scene changed; only then is the compressed frame sent through the server to the OpenRouter vision model for structured analysis, and it is never persisted.
+4. The scene graph updates known and unknown objects without automatically changing persistent twin state.
+5. Tap-to-talk questions are transcribed by the browser Web Speech API, answered from the latest frame, and spoken with the browser’s local voice.
 6. Suggested state changes still require confirmation. Pause seeing, pause voice input, and exit controls remain visible.
 
 ## Verification

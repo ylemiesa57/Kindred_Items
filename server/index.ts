@@ -11,9 +11,14 @@ const host = process.env.HOST ?? '0.0.0.0'
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
 const DEFAULT_MODEL = 'openai/gpt-oss-20b:free'
+const DEFAULT_VISION_MODEL = 'nvidia/nemotron-nano-12b-v2-vl:free'
 
 function reasoningModel() {
   return process.env.OPENROUTER_MODEL ?? DEFAULT_MODEL
+}
+
+function visionModel() {
+  return process.env.OPENROUTER_VISION_MODEL ?? DEFAULT_VISION_MODEL
 }
 
 app.disable('x-powered-by')
@@ -38,6 +43,7 @@ app.get('/api/health', (_request, response) => {
     provider: 'openrouter',
     openRouterConfigured: Boolean(process.env.OPENROUTER_API_KEY),
     model: reasoningModel(),
+    visionModel: visionModel(),
   })
 })
 
@@ -90,35 +96,44 @@ app.post('/api/world/analyze', async (request, response) => {
     return
   }
 
-  const { twins, previousScene, question } = request.body as {
+  const { image, twins, previousScene, question } = request.body as {
+    image?: string
     twins?: unknown
     previousScene?: unknown
     question?: string
   }
+  const hasFrame = typeof image === 'string' && image.startsWith('data:image/')
+
+  const instructions = [
+    'You are helping a person in a memory-support app understand the objects around them.',
+    hasFrame
+      ? 'Analyze the attached camera frame. List the distinct household objects you can actually see. Match a listed known twin only when the frame gives convincing evidence; otherwise set matchedTwinId to null. Describe only the visible state; do not infer events outside this frame.'
+      : 'You do not have a camera frame. Build the scene only from the known twins listed below, using their confirmed current state and usual location, and never invent objects that are not listed.',
+    'Set importantChange to at most one clearly notable difference from the previous scene, or null when nothing meaningful changed. Never make medical or emergency claims.',
+    'spokenResponse must be one short, respectful sentence. If there is a question, answer it from what is visible or from confirmed information and state uncertainty when unsure. Otherwise summarize the scene.',
+    `Known twins: ${JSON.stringify(twins ?? [])}`,
+    `Previous scene: ${JSON.stringify(previousScene ?? null)}`,
+    question ? `The person asks: ${question}` : '',
+    `Required JSON schema: ${JSON.stringify(worldSceneJsonSchema)}`,
+  ].filter(Boolean).join('\n')
+
+  const userContent = hasFrame
+    ? [
+        { type: 'text' as const, text: instructions },
+        { type: 'image_url' as const, image_url: { url: image } },
+      ]
+    : instructions
 
   try {
     const result = await client.chat.completions.create({
-      model: reasoningModel(),
+      model: hasFrame ? visionModel() : reasoningModel(),
       messages: [
         {
           role: 'system',
           content:
-            'You are Kindred World Guide, a calm memory-support companion. Return only valid JSON matching the requested schema. You cannot see any camera image; reason only from the known twins and their confirmed state. Never invent objects, diagnose, make medication decisions, claim hidden observations, or imply consciousness.',
+            'You are Kindred World Guide, a calm memory-support companion. Return only valid JSON matching the requested schema. Never diagnose, make medication decisions, claim hidden observations, or imply consciousness.',
         },
-        {
-          role: 'user',
-          content: [
-            'Help a person understand the objects they already registered in this memory-support app.',
-            'You do not have a camera frame. Build the scene only from the known twins listed below, using their confirmed current state and usual location.',
-            'For each known twin include it in objects with matchedTwinId set to its id, description from its details, location from its usual location, and visibleState from its current state. Never fabricate objects that are not in the known twins list.',
-            'Set importantChange to at most one notable difference from the previous scene, or null when nothing meaningful changed.',
-            'spokenResponse must be one short, respectful sentence. If there is a question, answer it from the known twins and confirmed state, and state uncertainty when the information is missing. Otherwise summarize the known objects.',
-            `Known twins: ${JSON.stringify(twins ?? [])}`,
-            `Previous scene: ${JSON.stringify(previousScene ?? null)}`,
-            question ? `The person asks: ${question}` : '',
-            `Required JSON schema: ${JSON.stringify(worldSceneJsonSchema)}`,
-          ].filter(Boolean).join('\n'),
-        },
+        { role: 'user', content: userContent },
       ],
       response_format: { type: 'json_object' },
       temperature: 0.2,
