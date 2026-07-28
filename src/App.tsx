@@ -38,7 +38,7 @@ import {
   answerAsTwin,
   assessConfirmation,
   commitProposal,
-  parseObservationText,
+  inferObservation,
   revertEvent,
 } from './twinEngine'
 import { fingerprintImage, matchFingerprint, type CapturedFingerprint, type IdentityMatch } from './vision'
@@ -199,10 +199,12 @@ function App() {
     speak(answer.text)
   }
 
-  function proposeObservation() {
+  async function proposeObservation() {
     if (!selectedTwin || !observation.trim()) return
-    const proposal = parseObservationText(selectedTwin, observation)
+    const text = observation
     setObservation('')
+    setStatus('Interpreting what changed…')
+    const proposal = await inferObservation(selectedTwin, text)
     if (proposal.deltas.length === 0) {
       setStatus(proposal.summary)
       return

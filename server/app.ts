@@ -144,4 +144,103 @@ app.post('/api/world/analyze', async (request, response) => {
   }
 })
 
+const observeInputSchema = z.object({
+  text: z.string().min(1).max(2000),
+  name: z.string().max(120).optional(),
+  fields: z.array(z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    values: z.array(z.string()).min(1),
+    current: z.string().optional(),
+  })).min(1).max(12),
+})
+
+const observeOutputSchema = z.object({
+  deltas: z.array(z.object({
+    field: z.string(),
+    after: z.string(),
+    confidence: z.number().min(0).max(1),
+  })).max(6),
+  summary: z.string(),
+})
+
+const observeJsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['deltas', 'summary'],
+  properties: {
+    summary: { type: 'string' },
+    deltas: {
+      type: 'array',
+      maxItems: 6,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['field', 'after', 'confidence'],
+        properties: {
+          field: { type: 'string' },
+          after: { type: 'string' },
+          confidence: { type: 'number', minimum: 0, maximum: 1 },
+        },
+      },
+    },
+  },
+} as const
+
+app.post('/api/observe', async (request, response) => {
+  const client = openRouterClient()
+  if (!client) {
+    response.status(503).json({ error: 'OpenRouter is not configured on the server.' })
+    return
+  }
+
+  const parsed = observeInputSchema.safeParse(request.body)
+  if (!parsed.success) {
+    response.status(400).json({ error: 'A text observation and state fields are required.' })
+    return
+  }
+  const { text, name, fields } = parsed.data
+
+  try {
+    const result = await client.chat.completions.create({
+      model: reasoningModel(),
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You interpret one short spoken or typed observation about a household object in a memory-support app and map it to structured state changes. Return only valid JSON matching the schema. Use ONLY the provided field keys and their exact allowed values. Include a field in deltas ONLY when the observation clearly implies that field changed to a DIFFERENT allowed value than its current value; infer meaning from natural language (e.g. "someone cracked it" implies damaged, "I put it back" implies its usual place). If nothing changed, or it is ambiguous, or no allowed value fits, return an empty deltas array. Set confidence 0-1 for each delta. Never invent fields or values, never give medical or emergency advice.',
+        },
+        {
+          role: 'user',
+          content: [
+            name ? `Object: ${name}` : '',
+            `Observation: "${text}"`,
+            'State fields (key, allowed values, current value):',
+            JSON.stringify(fields),
+            `Required JSON schema: ${JSON.stringify(observeJsonSchema)}`,
+          ].filter(Boolean).join('\n'),
+        },
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.1,
+      max_tokens: 1500,
+    })
+
+    const content = result.choices[0]?.message.content
+    if (!content) throw new Error('OpenRouter returned an empty observation analysis.')
+    const output = observeOutputSchema.parse(JSON.parse(content))
+
+    const byKey = new Map(fields.map((field) => [field.key, field]))
+    const deltas = output.deltas.filter((delta) => {
+      const field = byKey.get(delta.field)
+      return Boolean(field && field.values.includes(delta.after) && delta.after !== field.current)
+    })
+
+    response.json({ deltas, summary: output.summary })
+  } catch (error) {
+    console.error('Observation inference error', error)
+    response.status(502).json({ error: 'The observation could not be interpreted right now.' })
+  }
+})
+
 export default app
