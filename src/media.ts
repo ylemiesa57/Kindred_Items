@@ -29,51 +29,6 @@ declare global {
   }
 }
 
-async function normalizeRecording(blob: Blob): Promise<{ blob: Blob; signalLevel: number }> {
-  const context = new AudioContext()
-  try {
-    const decoded = await context.decodeAudioData(await blob.arrayBuffer())
-    const mono = new Float32Array(decoded.length)
-    for (let channelIndex = 0; channelIndex < decoded.numberOfChannels; channelIndex += 1) {
-      const channel = decoded.getChannelData(channelIndex)
-      for (let index = 0; index < channel.length; index += 1) {
-        mono[index] += channel[index] / decoded.numberOfChannels
-      }
-    }
-
-    let energy = 0
-    for (const sample of mono) energy += sample * sample
-    const signalLevel = mono.length ? Math.sqrt(energy / mono.length) : 0
-    const wav = new ArrayBuffer(44 + mono.length * 2)
-    const view = new DataView(wav)
-    const writeText = (offset: number, value: string) => {
-      for (let index = 0; index < value.length; index += 1) {
-        view.setUint8(offset + index, value.charCodeAt(index))
-      }
-    }
-    writeText(0, 'RIFF')
-    view.setUint32(4, 36 + mono.length * 2, true)
-    writeText(8, 'WAVE')
-    writeText(12, 'fmt ')
-    view.setUint32(16, 16, true)
-    view.setUint16(20, 1, true)
-    view.setUint16(22, 1, true)
-    view.setUint32(24, decoded.sampleRate, true)
-    view.setUint32(28, decoded.sampleRate * 2, true)
-    view.setUint16(32, 2, true)
-    view.setUint16(34, 16, true)
-    writeText(36, 'data')
-    view.setUint32(40, mono.length * 2, true)
-    for (let index = 0; index < mono.length; index += 1) {
-      const sample = Math.max(-1, Math.min(1, mono[index]))
-      view.setInt16(44 + index * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true)
-    }
-    return { blob: new Blob([wav], { type: 'audio/wav' }), signalLevel }
-  } finally {
-    await context.close()
-  }
-}
-
 export function useCamera() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -112,231 +67,65 @@ export function useCamera() {
 
 export function useSpeechInput(onTranscript: (transcript: string) => void) {
   const recognitionRef = useRef<RecognitionInstance | null>(null)
-  const recorderRef = useRef<MediaRecorder | null>(null)
-  const audioStreamRef = useRef<MediaStream | null>(null)
-  const audioContextRef = useRef<AudioContext | null>(null)
-  const silenceFrameRef = useRef<number | null>(null)
-  const chunksRef = useRef<Blob[]>([])
-  const discardRecordingRef = useRef(false)
   const listeningRef = useRef(false)
-  const processingRef = useRef(false)
   const [listening, setListening] = useState(false)
-  const [processing, setProcessing] = useState(false)
   const [error, setError] = useState('')
-  const [microphoneName, setMicrophoneName] = useState('')
-  const [lastSignalLevel, setLastSignalLevel] = useState<number | null>(null)
-  const recorderSupported = Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder)
-  const browserRecognitionSupported = Boolean(window.SpeechRecognition || window.webkitSpeechRecognition)
-  const supported = recorderSupported || browserRecognitionSupported
+  const supported = Boolean(window.SpeechRecognition || window.webkitSpeechRecognition)
 
   const setListeningState = useCallback((value: boolean) => {
     listeningRef.current = value
     setListening(value)
   }, [])
 
-  const setProcessingState = useCallback((value: boolean) => {
-    processingRef.current = value
-    setProcessing(value)
-  }, [])
-
-  const cleanUpAudio = useCallback(() => {
-    if (silenceFrameRef.current !== null) cancelAnimationFrame(silenceFrameRef.current)
-    silenceFrameRef.current = null
-    void audioContextRef.current?.close()
-    audioContextRef.current = null
-    audioStreamRef.current?.getTracks().forEach((track) => track.stop())
-    audioStreamRef.current = null
-    recorderRef.current = null
-  }, [])
-
-  const transcribeRecording = useCallback(async (blob: Blob) => {
-    setProcessingState(true)
-    setError('')
-    try {
-      let recording = blob
-      try {
-        const normalized = await normalizeRecording(blob)
-        recording = normalized.blob
-        setLastSignalLevel(normalized.signalLevel)
-        if (normalized.signalLevel < 0.0005) {
-          throw new Error('The selected microphone recorded silence. Check the browser or Windows input device and try again.')
-        }
-      } catch (cause) {
-        if (cause instanceof Error && cause.message.includes('recorded silence')) throw cause
-        setLastSignalLevel(null)
-      }
-      const form = new FormData()
-      const extension = recording.type.includes('wav')
-        ? 'wav'
-        : recording.type.includes('ogg')
-          ? 'ogg'
-          : recording.type.includes('mp4')
-            ? 'm4a'
-            : 'webm'
-      form.append('audio', recording, `speech.${extension}`)
-      const response = await fetch('/api/transcribe', { method: 'POST', body: form })
-      const payload = await response.json() as { text?: string; error?: string }
-      if (!response.ok || !payload.text) {
-        throw new Error(payload.error || 'The recording could not be transcribed.')
-      }
-      onTranscript(payload.text)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Voice input is unavailable.')
-    } finally {
-      setProcessingState(false)
-    }
-  }, [onTranscript, setProcessingState])
-
   const stop = useCallback(() => {
-    if (recorderRef.current?.state === 'recording') {
-      recorderRef.current.stop()
-    }
     recognitionRef.current?.stop()
     setListeningState(false)
   }, [setListeningState])
 
   const cancel = useCallback(() => {
-    if (recorderRef.current?.state === 'recording') {
-      discardRecordingRef.current = true
-      recorderRef.current.stop()
-    }
-    recognitionRef.current?.stop()
+    const recognition = recognitionRef.current
+    if (recognition) recognition.onresult = null
+    recognition?.stop()
     setListeningState(false)
   }, [setListeningState])
 
-  const startBrowserRecognition = useCallback(() => {
+  const start = useCallback(async () => {
+    if (listeningRef.current) return
+    setError('')
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!Recognition) return
+    if (!Recognition) {
+      setError('Voice input is not supported in this browser. Please type your answer instead.')
+      return
+    }
     const recognition = new Recognition()
     recognition.continuous = false
     recognition.interimResults = false
     recognition.lang = 'en-US'
     recognition.onresult = (event) => {
       const transcript = event.results[event.results.length - 1][0].transcript
-      onTranscript(transcript)
+      setListeningState(false)
+      if (transcript.trim()) onTranscript(transcript.trim())
     }
-    recognition.onerror = () => setListeningState(false)
+    recognition.onerror = () => {
+      setError('Voice input did not work. Please try again or type your answer.')
+      setListeningState(false)
+    }
     recognition.onend = () => setListeningState(false)
     recognitionRef.current = recognition
     recognition.start()
     setListeningState(true)
   }, [onTranscript, setListeningState])
 
-  const start = useCallback(async () => {
-    if (listeningRef.current || processingRef.current) return
-    setError('')
-
-    if (!recorderSupported) {
-      startBrowserRecognition()
-      return
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      })
-      audioStreamRef.current = stream
-      const track = stream.getAudioTracks()[0]
-      setMicrophoneName(track?.label || 'Default microphone')
-      if (track) {
-        track.onmute = () => setError('The selected microphone is muted by the browser or operating system.')
-      }
-      const preferredType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find((type) =>
-        MediaRecorder.isTypeSupported(type),
-      )
-      const recorder = new MediaRecorder(stream, preferredType ? { mimeType: preferredType } : undefined)
-      chunksRef.current = []
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) chunksRef.current.push(event.data)
-      }
-      recorder.onerror = () => {
-        discardRecordingRef.current = true
-        setError('The microphone recording failed. Please try again.')
-        cleanUpAudio()
-        setListeningState(false)
-      }
-      recorder.onstop = () => {
-        const shouldDiscard = discardRecordingRef.current
-        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' })
-        cleanUpAudio()
-        if (shouldDiscard) return
-        if (blob.size > 0) void transcribeRecording(blob)
-      }
-      recorderRef.current = recorder
-      discardRecordingRef.current = false
-      recorder.start()
-      setListeningState(true)
-
-      const audioContext = new AudioContext()
-      const analyser = audioContext.createAnalyser()
-      analyser.fftSize = 1024
-      audioContext.createMediaStreamSource(stream).connect(analyser)
-      audioContextRef.current = audioContext
-      const levels = new Uint8Array(analyser.fftSize)
-      const startedAt = performance.now()
-      let heardSpeech = false
-      let lastSpeechAt = startedAt
-      let speechFrames = 0
-      let noiseFloor = 0.004
-      let calibrationFrames = 0
-      const watchSilence = () => {
-        if (recorder.state !== 'recording') return
-        analyser.getByteTimeDomainData(levels)
-        let energy = 0
-        for (const level of levels) {
-          const normalized = (level - 128) / 128
-          energy += normalized * normalized
-        }
-        const rms = Math.sqrt(energy / levels.length)
-        const now = performance.now()
-        if (now - startedAt < 450) {
-          noiseFloor = (noiseFloor * calibrationFrames + rms) / (calibrationFrames + 1)
-          calibrationFrames += 1
-        }
-        const speechThreshold = Math.max(0.006, noiseFloor * 2.2)
-        if (now - startedAt >= 450 && rms > speechThreshold) {
-          speechFrames += 1
-          if (speechFrames >= 4) {
-            heardSpeech = true
-            lastSpeechAt = now
-          }
-        } else {
-          speechFrames = Math.max(0, speechFrames - 1)
-        }
-        if ((heardSpeech && now - lastSpeechAt > 1300) || now - startedAt > 10000) {
-          recorder.stop()
-          setListeningState(false)
-          return
-        }
-        silenceFrameRef.current = requestAnimationFrame(watchSilence)
-      }
-      silenceFrameRef.current = requestAnimationFrame(watchSilence)
-    } catch {
-      setError('Microphone access was not granted. Check the browser permission and try again.')
-      cleanUpAudio()
-      setListeningState(false)
-    }
-  }, [cleanUpAudio, recorderSupported, setListeningState, startBrowserRecognition, transcribeRecording])
-
   useEffect(() => () => {
-    if (recorderRef.current?.state === 'recording') {
-      discardRecordingRef.current = true
-      recorderRef.current.stop()
-    }
     recognitionRef.current?.stop()
-    cleanUpAudio()
-  }, [cleanUpAudio])
+  }, [])
 
   return {
     listening,
-    processing,
+    processing: false as boolean,
     error,
-    microphoneName,
-    lastSignalLevel,
+    microphoneName: '' as string,
+    lastSignalLevel: null as number | null,
     supported,
     start,
     stop,

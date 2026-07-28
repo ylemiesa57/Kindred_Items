@@ -168,11 +168,11 @@ export function WorldMode({
           <span className="world-symbol"><Globe2 size={34} /></span>
           <p className="eyebrow">V3 experience</p>
           <h1>Enter your object world</h1>
-          <p>World Mode keeps the camera active only during this visible session. Groq builds a temporary scene of the objects around you, and voice input runs only when you tap Talk.</p>
+          <p>World Mode keeps the camera active only during this visible session. A vision model (via OpenRouter) builds a temporary scene from the current camera frame, and voice input runs only when you tap Talk.</p>
           <div className="world-principles">
             <span><Eye size={17} /> Visible session only</span>
             <span><ShieldCheck size={17} /> Frames are not stored</span>
-            <span><Sparkles size={17} /> Groq visual reasoning</span>
+            <span><Sparkles size={17} /> OpenRouter vision</span>
           </div>
           <button className="primary-button large" onClick={() => void startWorld()}>
             <Camera size={20} /> Start World Mode
