@@ -77,6 +77,24 @@ npm audit
 
 The automated suite covers state extraction, confirmation rules, corrections, medical boundaries, grounding, and fingerprint matching.
 
+## Deployment
+
+Two targets are supported and share the same Express routes (defined in `server/app.ts`):
+
+- **Render** — `render.yaml` runs the long-lived server (`npm run build` then `npm start`), which serves the built SPA and the API together.
+- **Vercel** — `vercel.json` builds the SPA to `dist/` (static) and runs the Express app as a serverless function via `api/[...path].ts`, which re-exports the app from `server/app.ts`.
+
+Environment variables (set these in the platform dashboard):
+
+| Variable | Required | Default | Notes |
+|----------|----------|---------|-------|
+| `OPENROUTER_API_KEY` | Yes (secret) | — | Only real secret; leave unset to run the app without World Mode AI |
+| `OPENROUTER_MODEL` | No | `openai/gpt-oss-20b:free` | Text reasoning fallback (no camera frame) |
+| `OPENROUTER_VISION_MODEL` | No | `nvidia/nemotron-nano-12b-v2-vl:free` | Analyzes camera frames in World Mode |
+| `OPENROUTER_SITE_URL`, `OPENROUTER_APP_NAME` | No | localhost / Kindred Objects | Optional OpenRouter attribution headers |
+
+Do not set `PORT` or `NODE_ENV` on Vercel; the platform manages them.
+
 ## Prototype limits
 
 This is a memory-support prototype, not a medical device or autonomous safety system. It only knows what was shown or reported during a session. It cannot infer events that occurred while the camera was off, and it must never replace human care or supervision. Visual matching remains heuristic, and World Mode model output can be wrong; persistent changes therefore require human confirmation.
