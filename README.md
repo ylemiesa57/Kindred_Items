@@ -1,5 +1,7 @@
 # Kindred Objects
 
+SUBMISSION TO OPEN AI HACKATHON
+
 A privacy-first prototype for stateful, conversational object twins. Point a phone camera at meaningful household objects, give them grounded personalities, and preserve confirmed changes as an append-only history.
 
 ## Run locally
