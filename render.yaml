@@ -13,9 +13,7 @@ services:
         value: 20.19.0
       - key: NODE_ENV
         value: production
-      - key: GROQ_API_KEY
+      - key: OPENROUTER_API_KEY
         sync: false
-      - key: GROQ_TRANSCRIPTION_MODEL
-        value: whisper-large-v3-turbo
-      - key: GROQ_VISION_MODEL
-        value: qwen/qwen3.6-27b
+      - key: OPENROUTER_MODEL
+        value: openai/gpt-oss-20b:free

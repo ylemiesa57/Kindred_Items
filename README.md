@@ -8,26 +8,30 @@ A privacy-first prototype for stateful, conversational object twins. Point a pho
 
 ```bash
 npm install
-copy .env.example .env
-# Add GROQ_API_KEY to .env
+cp .env.example .env
+# Add OPENROUTER_API_KEY to .env
 npm run dev
 ```
 
-Open `http://localhost:5173`. Camera and microphone access require `localhost` or HTTPS. The Vite client proxies `/api` to the local server on port 8787, so the Groq API key never enters browser code.
+Open `http://localhost:5173`. Camera and microphone access require `localhost` or HTTPS. The Vite client proxies `/api` to the local server on port 8787, so the OpenRouter API key never enters browser code.
 
-Groq powers:
+OpenRouter (default model `openai/gpt-oss-20b:free`) powers:
 
-- Whisper Large V3 Turbo transcription for enrollment, confirmations, and World Mode questions
-- Qwen 3.6 vision reasoning over temporary World Mode frames
-- Structured multi-object analysis and grounded question answering
+- Structured World Mode reasoning over the objects you have registered and grounded question answering
 
-Browser speech synthesis provides spoken responses without another paid service. Models are configurable in `.env`. `npm run start` serves the built production app after `npm run build`.
+`gpt-oss` is a text-only model, so voice and vision are handled locally in the browser:
+
+- Speech input uses the browser Web Speech API (no external transcription service)
+- Speech output uses `speechSynthesis`
+- World Mode change detection uses local color-histogram fingerprints; the camera frame itself is never sent to the model
+
+The model is configurable via `OPENROUTER_MODEL` in `.env`. `npm run start` serves the built production app after `npm run build`.
 
 ## What V3 implements
 
 - Immediate spoken “Picture taken” feedback, camera shutdown, and automatic progression
 - One-question-at-a-time hands-free enrollment with voice commands and keyboard fallback
-- Groq transcription with automatic end-of-speech detection and visible processing/error states
+- Browser-native speech recognition with visible listening/error states
 - A global **Introduce another object** action and auto-starting introduction camera
 - Explicit World Mode with live scene understanding, multi-object matching, tap-to-talk conversation, camera pause, voice-input pause, and exit controls
 - Local visual fingerprints and explicit identity confirmation
@@ -49,16 +53,16 @@ The local matching algorithm compares normalized color histograms. It demonstrat
 3. The app vibrates, says “Picture taken,” turns the camera off, and advances automatically.
 4. Similarity search proposes a twin; the user confirms by voice or button.
 5. New objects are introduced through a guided voice interview after they can be put down.
-6. Spoken answers are recorded until silence, sent to the server for transcription, and discarded.
+6. Spoken answers are transcribed locally by the browser Web Speech API; no audio is sent to the server.
 7. Accepted changes create immutable events and update current state.
 
 ### World Mode
 
 1. The user explicitly starts a visible World Mode session.
 2. While active, a frame is sampled about every eight seconds, but unchanged scenes are skipped locally.
-3. Temporary compressed frames are sent through the server to Groq for structured visual analysis; this app does not persist them.
-4. The scene graph updates known and unknown objects without automatically changing persistent twin state.
-5. Tap-to-talk questions are transcribed by Groq, answered from the latest frame, and spoken with the browser’s local voice.
+3. Local color-histogram fingerprints detect when the scene changed; the camera frame itself is never sent off-device.
+4. The scene graph is built by gpt-oss (via OpenRouter) reasoning over your registered twins, without automatically changing persistent twin state.
+5. Tap-to-talk questions are transcribed by the browser Web Speech API, answered from your registered objects, and spoken with the browser’s local voice.
 6. Suggested state changes still require confirmation. Pause seeing, pause voice input, and exit controls remain visible.
 
 ## Verification
