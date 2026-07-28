@@ -1,65 +1,169 @@
+<div align="center">
+
 # Kindred Objects
 
-SUBMISSION TO OPEN AI HACKATHON
+### Stateful conversational twins for the things that matter
 
-A privacy-first prototype for stateful, conversational object twins. Point a phone camera at meaningful household objects, give them grounded personalities, and preserve confirmed changes as an append-only history.
+[![OpenAI Hackathon](https://img.shields.io/badge/OpenAI-Hackathon%20Submission-10a37f?style=for-the-badge&logo=openai&logoColor=white)](https://openai.com)
+[![React](https://img.shields.io/badge/React_19-222222?style=for-the-badge&logo=react&logoColor=61DAFB)](https://react.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Vite](https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev)
+[![Groq](https://img.shields.io/badge/Groq-F55036?style=for-the-badge&logo=data:image/svg+xml;base64,&logoColor=white)](https://groq.com)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](./LICENSE)
 
-## Run locally
+Point a phone camera at a meaningful household object.  
+Give it a grounded personality.  
+Preserve every confirmed change as an append-only history.
+
+<br/>
+
+**Privacy-first · Voice-native · Confirmation-gated · Care-aware**
+
+</div>
+
+---
+
+## Why Kindred?
+
+Everyday objects carry stories — a wedding photo, a favorite lamp, a set of keys that always go missing. Kindred Objects turns those items into **conversational twins**: stateful companions that remember what you told them, speak in first person, and only change when a human confirms it.
+
+Built as a memory-support prototype for dementia-care contexts, with hard boundaries:
+
+| Never does | Always does |
+|---|---|
+| Diagnose or give medical advice | Require confirmation for consequential changes |
+| Decide medications or emergencies | Keep API keys server-side |
+| Hide monitoring or persist raw frames | Store twins locally with export & delete |
+| Invent events while the camera is off | Ground replies in approved profile + confirmed state |
+
+---
+
+## Features at a glance
+
+```text
+┌──────────────┐   ┌─────────────────┐   ┌──────────────────┐
+│  Introduce   │ → │  Confirm twin   │ → │  Talk & update   │
+│  with camera │   │  by voice/tap   │   │  with history    │
+└──────────────┘   └─────────────────┘   └──────────────────┘
+         │                                        │
+         └──────────── World Mode ────────────────┘
+              live multi-object scene understanding
+```
+
+- **Hands-free enrollment** — one question at a time, voice commands + keyboard fallback
+- **Instant capture feedback** — spoken “Picture taken,” camera shutdown, auto-advance
+- **Local visual fingerprints** — 48-bin color histograms; identity always confirmed by you
+- **Typed state schemas** — sentimental items, appliances, and personal belongings
+- **Append-only history** — caregiver corrections without rewriting the past
+- **World Mode** — live scene graph, tap-to-talk Q&A, pause seeing / pause voice / exit
+- **PWA-ready** — installable metadata + optional service worker in production
+- **Groq-powered** — Whisper Large V3 Turbo transcription + Qwen vision reasoning
+
+---
+
+## Quick start
 
 ```bash
 npm install
-copy .env.example .env
+cp .env.example .env   # Windows: copy .env.example .env
 # Add GROQ_API_KEY to .env
 npm run dev
 ```
 
-Open `http://localhost:5173`. Camera and microphone access require `localhost` or HTTPS. The Vite client proxies `/api` to the local server on port 8787, so the Groq API key never enters browser code.
+Open **http://localhost:5173**. Camera and microphone need `localhost` or HTTPS.
 
-Groq powers:
+| Script | What it does |
+|---|---|
+| `npm run dev` | Vite client + Express API (port `8787`) via concurrently |
+| `npm run build` | Typecheck + production client/server build |
+| `npm start` | Serve the built app (`NODE_ENV=production`) |
+| `npm test` | Vitest suite (state, confirmation, boundaries, matching) |
+| `npm run lint` | Strict TypeScript checks for client and server |
 
-- Whisper Large V3 Turbo transcription for enrollment, confirmations, and World Mode questions
-- Qwen 3.6 vision reasoning over temporary World Mode frames
-- Structured multi-object analysis and grounded question answering
+The Vite proxy forwards `/api` to the local server so the Groq key **never** enters browser code.
 
-Browser speech synthesis provides spoken responses without another paid service. Models are configurable in `.env`. `npm run start` serves the built production app after `npm run build`.
+### Environment
 
-## What V3 implements
+```env
+GROQ_API_KEY=replace_with_your_server_side_key
+GROQ_TRANSCRIPTION_MODEL=whisper-large-v3-turbo
+GROQ_VISION_MODEL=qwen/qwen3.6-27b
+PORT=8787
+```
 
-- Immediate spoken “Picture taken” feedback, camera shutdown, and automatic progression
-- One-question-at-a-time hands-free enrollment with voice commands and keyboard fallback
-- Groq transcription with automatic end-of-speech detection and visible processing/error states
-- A global **Introduce another object** action and auto-starting introduction camera
-- Explicit World Mode with live scene understanding, multi-object matching, tap-to-talk conversation, camera pause, voice-input pause, and exit controls
-- Local visual fingerprints and explicit identity confirmation
-- Three typed state schemas: sentimental item, appliance, and personal belonging
-- Structured state proposals with confidence and safety confirmation
-- Append-only state history with caregiver corrections
-- Grounded first-person object personalities
-- Local persistence, data export, deletion, and PWA metadata
-- Dementia-care boundaries: no diagnosis, medication decisions, emergency claims, or hidden monitoring
+---
 
-The local matching algorithm compares normalized color histograms. It demonstrates the identity boundary and confirmation UX, not production-grade object re-identification. A production adapter should use multi-view visual embeddings while preserving the same ambiguity policy.
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph Client["Browser · React + Vite"]
+    Cam[Camera / Mic]
+    FP[Local fingerprint]
+    UI[Twin UI + World Mode]
+    Store[(localStorage)]
+    TTS[speechSynthesis]
+  end
+
+  subgraph Server["Node · Express"]
+    API["/api · multer"]
+    STT[Whisper transcription]
+    Vision[Qwen scene analysis]
+  end
+
+  Cam --> FP
+  Cam --> UI
+  UI --> Store
+  UI -->|audio / frames| API
+  API --> STT
+  API --> Vision
+  STT --> UI
+  Vision --> UI
+  UI --> TTS
+```
+
+| Layer | Role |
+|---|---|
+| **Client** | Capture, fingerprinting, twin state machine, caregiver tools, TTS |
+| **Server** | Transcription + vision only — no durable media storage |
+| **Storage** | Twins, events, and consent live in the browser; export/delete anytime |
+
+---
 
 ## Data flow
 
 ### Single-object introduction
 
-1. A frame is sampled only after the user taps **Take picture**.
-2. The frame is reduced to a 48-value histogram in the browser and discarded.
-3. The app vibrates, says “Picture taken,” turns the camera off, and advances automatically.
-4. Similarity search proposes a twin; the user confirms by voice or button.
-5. New objects are introduced through a guided voice interview after they can be put down.
-6. Spoken answers are recorded until silence, sent to the server for transcription, and discarded.
-7. Accepted changes create immutable events and update current state.
+1. Frame is sampled only after **Take picture**
+2. Browser reduces it to a 48-value histogram, then discards the frame
+3. App vibrates, says “Picture taken,” turns the camera off, advances
+4. Similarity search proposes a twin → you confirm by voice or button
+5. New objects get a guided voice interview once they can be put down
+6. Spoken answers are recorded until silence, transcribed server-side, discarded
+7. Accepted changes create immutable events and update current state
 
 ### World Mode
 
-1. The user explicitly starts a visible World Mode session.
-2. While active, a frame is sampled about every eight seconds, but unchanged scenes are skipped locally.
-3. Temporary compressed frames are sent through the server to Groq for structured visual analysis; this app does not persist them.
-4. The scene graph updates known and unknown objects without automatically changing persistent twin state.
-5. Tap-to-talk questions are transcribed by Groq, answered from the latest frame, and spoken with the browser’s local voice.
-6. Suggested state changes still require confirmation. Pause seeing, pause voice input, and exit controls remain visible.
+1. You explicitly start a visible World Mode session
+2. Frames sample ~every 8s; unchanged scenes are skipped locally
+3. Temporary compressed frames go through the server to Groq — not persisted
+4. Scene graph updates known/unknown objects without mutating twin state
+5. Tap-to-talk questions are transcribed, answered from the latest frame, spoken locally
+6. Suggested state changes still require confirmation; pause & exit stay visible
+
+---
+
+## Object categories
+
+| Category | Examples | Tracked state |
+|---|---|---|
+| **Sentimental** | Photos, keepsakes, gifts | condition · location · display |
+| **Appliance** | Lamps, everyday tools | power · closure · condition |
+| **Belonging** | Keys, glasses, bags | location · condition · completeness |
+
+Each twin carries a persona (warmth, voice, greeting), approved instructions, safety notes, and medication-related flags that tighten confirmation rules.
+
+---
 
 ## Verification
 
@@ -70,93 +174,60 @@ npm run build
 npm audit
 ```
 
-The automated suite covers state extraction, confirmation rules, corrections, medical boundaries, grounding, and fingerprint matching.
+The suite covers state extraction, confirmation rules, corrections, medical boundaries, grounding, and fingerprint matching.
+
+---
+
+## Deploy
+
+Ready for [Render](https://render.com) via `render.yaml`:
+
+- Node 20 web service
+- `npm ci && npm run build` → `npm start`
+- Health check at `/api/health`
+- Set `GROQ_API_KEY` in the dashboard (not committed)
+
+---
 
 ## Prototype limits
 
-This is a memory-support prototype, not a medical device or autonomous safety system. It only knows what was shown or reported during a session. It cannot infer events that occurred while the camera was off, and it must never replace human care or supervision. Visual matching remains heuristic, and World Mode model output can be wrong; persistent changes therefore require human confirmation.
-# Kindred Objects
+> This is a **memory-support prototype**, not a medical device or autonomous safety system.
 
-A privacy-first prototype for stateful, conversational object twins. Point a phone camera at a meaningful household object, give it a grounded personality, and preserve confirmed changes as an append-only history.
+- It only knows what was shown or reported during a session
+- It cannot infer events that occurred while the camera was off
+- Visual matching is a histogram heuristic — not production re-identification
+- World Mode model output can be wrong; persistent changes require human confirmation
+- It must never replace human care or supervision
 
-## Run locally
+A production adapter should swap in multi-view visual embeddings while keeping the same ambiguity and confirmation policy.
 
-```bash
-npm install
-npm run dev
-```
+---
 
-Camera access requires `localhost` or HTTPS. Speech input uses the browser Web Speech API when available; speech output uses `speechSynthesis`.
+## Stack
 
-## What the prototype implements
+| Area | Choice |
+|---|---|
+| UI | React 19 · TypeScript · Vite 6 · Lucide |
+| API | Express 5 · Multer · Zod |
+| Models | Groq Whisper Large V3 Turbo · Qwen 3.6 vision |
+| Voice out | Browser `speechSynthesis` |
+| Tests | Vitest |
+| Deploy | Render Blueprint |
 
-- Mobile-first camera and voice experience
-- Immediate spoken “Picture taken” feedback, camera shutdown, and automatic progression
-- One-question-at-a-time hands-free enrollment with voice commands and keyboard fallback
-- Local visual fingerprints and explicit identity confirmation
-- Three typed state schemas: sentimental item, appliance, and personal belonging
-- Structured state proposals with confidence and safety confirmation
-- Append-only state history with caregiver corrections
-- Grounded first-person object personalities
-- Local persistence, data export, deletion, and PWA metadata
-- Dementia-care boundaries: no diagnosis, medication decisions, emergency claims, or hidden monitoring
+---
 
-The local matching algorithm is deliberately lightweight: it compares normalized color histograms. It demonstrates the identity boundary and confirmation UX, not production-grade object re-identification. A production adapter should replace it with multi-view visual embeddings while preserving the same ambiguity policy.
+## License
 
-## Data flow
+MIT © [Yaphet Lemiesa](https://github.com/ylemiesa57)
 
-1. A frame is sampled only after the user taps **Take picture**.
-2. The frame is reduced to a 48-value histogram in the browser and discarded.
-3. The app vibrates, says “Picture taken,” turns the camera off, and advances automatically.
-4. Similarity search proposes a twin; the user confirms the identity by voice or button.
-5. New objects are introduced through a guided voice interview after they can be put down.
-6. Spoken or typed observations are parsed against the category’s allowed state schema.
-7. Consequential, medication-related, low-confidence, or ambiguous changes require spoken or visible confirmation.
-8. Accepted changes create immutable events and update the current state.
-9. Object responses retrieve only from the approved profile and confirmed state.
+---
 
-## Verification
+<div align="center">
 
-```bash
-npm run lint
-npm test
-npm run build
-```
+**Objects remember. People confirm. Care stays human.**
 
-The automated suite covers state extraction, confirmation rules, corrections, medical boundaries, grounding, and fingerprint matching.
+<br/>
 
-## Prototype limits
+<em>Submission to the OpenAI Hackathon</em>
 
-This is a memory-support prototype, not a medical device or autonomous safety system. It only knows what was shown or reported during a session. It cannot infer events that occurred while the camera was off, and it must never replace human care or supervision.
-# React + TypeScript + Vite
-
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
-
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
-```
-
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+</div>
