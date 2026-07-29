@@ -71,6 +71,66 @@ export function parseObservationText(
   }
 }
 
+function summarizeDeltas(deltas: StateDelta[]) {
+  return `I noticed ${deltas.map((delta) => `${delta.field} may be ${delta.after}`).join(' and ')}.`
+}
+
+export async function inferObservation(
+  twin: ObjectTwin,
+  text: string,
+  identityConfidence = 1,
+): Promise<ObservationProposal> {
+  const stateFields = categoryDefinitions[twin.category].stateFields
+  const allowed = new Map(stateFields.map((field) => [field.key, field.values]))
+
+  try {
+    const response = await fetch('/api/observe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text,
+        name: twin.name,
+        fields: stateFields.map((field) => ({
+          key: field.key,
+          label: field.label,
+          values: field.values,
+          current: twin.currentState[field.key] ?? 'unknown',
+        })),
+      }),
+    })
+    if (!response.ok) throw new Error('Observation inference failed.')
+    const payload = await response.json() as {
+      deltas?: { field: string; after: string; confidence?: number }[]
+      summary?: string
+    }
+
+    const deltas: StateDelta[] = (payload.deltas ?? [])
+      .filter((delta) =>
+        allowed.get(delta.field)?.includes(delta.after) && twin.currentState[delta.field] !== delta.after,
+      )
+      .map((delta) => ({
+        field: delta.field,
+        before: twin.currentState[delta.field],
+        after: delta.after,
+        confidence: typeof delta.confidence === 'number' ? Math.max(0, Math.min(1, delta.confidence)) : 0.8,
+        evidenceText: `You said: “${text.trim()}”`,
+      }))
+
+    return {
+      twinId: twin.id,
+      identityConfidence,
+      source: 'user',
+      deltas,
+      summary: deltas.length
+        ? summarizeDeltas(deltas)
+        : (payload.summary || 'I heard you, but I did not infer a supported state change.'),
+    }
+  } catch {
+    // Fall back to the deterministic local parser when the model is unavailable.
+    return parseObservationText(twin, text, identityConfidence)
+  }
+}
+
 export function commitProposal(
   twin: ObjectTwin,
   proposal: ObservationProposal,
