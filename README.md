@@ -1,5 +1,7 @@
 # Kindred Objects
 
+Inspiration: alzheimer's patients lack of remembering their daily household layout. goal: integrate into AR glasses or phone to help give live rememberance as a World Model for things around a patient. IN DEVELOPMENT.
+
 SUBMISSION TO OPEN AI HACKATHON
 
 A privacy-first prototype for stateful, conversational object twins. Point a phone camera at meaningful household objects, give them grounded personalities, and preserve confirmed changes as an append-only history.
